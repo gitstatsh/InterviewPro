@@ -1,0 +1,356 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth (Better Auth compatible) ───────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  accounts             Account[]
+  sessions             Session[]
+  organizationMembers  OrganizationMember[]
+  conductedSessions    InterviewSession[]   @relation("Interviewer")
+  passwordResetTokens  PasswordResetToken[]
+  createdBanks         QuestionBank[]       @relation("CreatedBanks")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?   @db.Text
+  password              String?   @db.Text
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+}
+
+model Verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String    @db.Text
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([identifier])
+}
+
+// ─── Organizations ────────────────────────────────────────────────────────────
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logo        String?
+  website     String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members          OrganizationMember[]
+  roles            Role[]
+  candidates       Candidate[]
+  questions        Question[]
+  questionBanks    QuestionBank[]
+  interviewSessions InterviewSession[]
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           MemberRole @default(MEMBER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleAssignments RoleAssignment[]
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  ORG_HR
+  ORG_MEMBER
+  MEMBER
+}
+
+// ─── Roles & Permissions ──────────────────────────────────────────────────────
+
+model Role {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String?
+  isGlobal       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions     RolePermission[]
+  assignments     RoleAssignment[]
+
+  @@unique([name, organizationId])
+  @@index([organizationId])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  action      String   // e.g. "candidates:create"
+  resource    String   // e.g. "candidates"
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@unique([action])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model RoleAssignment {
+  id       String @id @default(cuid())
+  memberId String
+  roleId   String
+
+  member OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  role   Role               @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, roleId])
+}
+
+// ─── Question Banks ───────────────────────────────────────────────────────────
+
+model QuestionBank {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?  @db.Text
+  isShared       Boolean  @default(false)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User                   @relation("CreatedBanks", fields: [createdById], references: [id])
+  questions    QuestionBankQuestion[]
+
+  @@index([organizationId])
+  @@index([isShared])
+}
+
+model QuestionBankQuestion {
+  id         String   @id @default(cuid())
+  bankId     String
+  questionId String
+  order      Int      @default(0)
+  addedAt    DateTime @default(now())
+
+  bank     QuestionBank @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  question Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([bankId, questionId])
+  @@index([bankId])
+}
+
+// ─── Questions ────────────────────────────────────────────────────────────────
+
+model Question {
+  id             String           @id @default(cuid())
+  organizationId String?
+  title          String
+  body           String           @db.Text
+  category       String
+  subCategory    String?
+  difficulty     QuestionDifficulty @default(MEDIUM)
+  tags           String[]
+  isGlobal       Boolean          @default(false)
+  aiGenerated    Boolean          @default(false)
+  expectedAnswer String?          @db.Text
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization     Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  sessionQuestions SessionQuestion[]
+  bankQuestions    QuestionBankQuestion[]
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+// ─── Candidates ───────────────────────────────────────────────────────────────
+
+model Candidate {
+  id             String   @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String
+  phone          String?
+  resumeUrl      String?
+  linkedinUrl    String?
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  interviewSessions InterviewSession[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+}
+
+// ─── Interview Sessions ───────────────────────────────────────────────────────
+
+model InterviewSession {
+  id             String          @id @default(cuid())
+  organizationId String
+  candidateId    String
+  interviewerId  String
+  title          String
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  status         SessionStatus   @default(SCHEDULED)
+  notes          String?         @db.Text
+  aiSummary      Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate         Candidate         @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  interviewer       User              @relation("Interviewer", fields: [interviewerId], references: [id])
+  sessionQuestions  SessionQuestion[]
+  report            Report?
+
+  @@index([organizationId])
+  @@index([candidateId])
+  @@index([interviewerId])
+}
+
+enum SessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model SessionQuestion {
+  id        String   @id @default(cuid())
+  sessionId String
+  questionId String
+  order     Int
+  timeLimit Int?     // seconds
+
+  session    InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question   Question         @relation(fields: [questionId], references: [id])
+  answer     Answer?
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId])
+}
+
+// ─── Assessments ──────────────────────────────────────────────────────────────
+
+model Answer {
+  id                String   @id @default(cuid())
+  sessionQuestionId String   @unique
+  content           String   @db.Text
+  notes             String?  @db.Text
+  flagged           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  sessionQuestion SessionQuestion @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  assessment      Assessment?
+}
+
+model Assessment {
+  id        String   @id @default(cuid())
+  answerId  String   @unique
+  score     Int      // 1-5
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  answer Answer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+model Report {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  pdfUrl    String?
+  generatedAt DateTime @default(now())
+
+  session InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
