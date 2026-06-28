@@ -93,7 +93,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const Icon = item.icon;
             const isActive =
               pathname === item.href ||
-              (item.href !== "/dashboard" && item.href !== "/settings" && item.href !== "/questions" && pathname.startsWith(item.href));
+              (item.href !== "/dashboard" && item.href !== "/settings" && item.href !== "/questions" && pathname?.startsWith(item.href));
             return (
               <Link
                 key={item.href}

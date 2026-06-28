@@ -115,11 +115,12 @@ function EmailModal({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ReportPage() {
-  const { id } = useParams<{ id: string }>();
+  const _params = useParams<{ id: string }>();
+  const id = _params?.id ?? "";
   const { activeOrgId } = useActiveOrg();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const fromReports = searchParams.get("from") === "reports";
+  const fromReports = searchParams?.get("from") === "reports";
   const [showEmail, setShowEmail] = useState(false);
 
   const { data, isLoading } = useReport(activeOrgId, id);

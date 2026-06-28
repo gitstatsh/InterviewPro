@@ -339,7 +339,8 @@ function AnswerEditor({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SessionDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const _params = useParams<{ id: string }>();
+  const id = _params?.id ?? "";
   const { activeOrgId } = useActiveOrg();
   const router = useRouter();
   const [currentIdx, setCurrentIdx] = useState(0);

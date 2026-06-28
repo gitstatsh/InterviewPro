@@ -13,7 +13,7 @@ import { Loader2 } from "lucide-react";
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const from = searchParams.get("from") ?? "/dashboard";
+  const from = searchParams?.get("from") ?? "/dashboard";
 
   const {
     register,

@@ -230,7 +230,8 @@ function Recommendation({ avg }: { avg: number | null }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AssessPage() {
-  const { id } = useParams<{ id: string }>();
+  const _params = useParams<{ id: string }>();
+  const id = _params?.id ?? "";
   const { activeOrgId } = useActiveOrg();
   const router = useRouter();
 

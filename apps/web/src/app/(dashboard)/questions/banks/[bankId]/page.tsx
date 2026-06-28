@@ -436,7 +436,8 @@ function GenerateFromJDModal({ orgId, bankId, onClose }: { orgId: string; bankId
 
 export default function BankDetailPage() {
   const router = useRouter();
-  const { bankId } = useParams<{ bankId: string }>();
+  const params = useParams<{ bankId: string }>();
+  const bankId = params?.bankId ?? "";
   const { activeOrgId } = useActiveOrg();
   const [modal, setModal] = useState<"ai" | "manual" | "pool" | "jd" | null>(null);
   const [search, setSearch] = useState("");
