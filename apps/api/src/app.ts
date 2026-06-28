@@ -28,6 +28,8 @@ export async function buildApp() {
           : undefined,
     },
     bodyLimit: 10 * 1024 * 1024, // 10 MB — needed for base64 logo uploads
+    keepAliveTimeout: 120_000,   // 120s — prevents socket hang up when Next.js proxy reuses connections during long AI calls
+    connectionTimeout: 300_000,  // 300s — allow AI generation calls up to 5 minutes
   });
 
   // ── Plugins ──────────────────────────────────────────────────────────────
