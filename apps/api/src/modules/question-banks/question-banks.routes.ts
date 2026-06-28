@@ -20,17 +20,17 @@ function requireOrg(reply: any, orgId: string | null | undefined): orgId is stri
 }
 
 const questionBanksRoutes: FastifyPluginAsync = async (fastify) => {
-  // Read: all members
+  // Read: content roles only (ORG_HR excluded)
   fastify.get("/question-banks", { preHandler: [requireAuth] }, async (request, reply) => {
     if (!requireOrg(reply, request.organizationId)) return;
-    await requireRole(request.organizationId!, request.user!.id!, ALL_STAFF);
+    await requireRole(request.organizationId!, request.user!.id!, CONTENT_ROLES);
     const params = QuestionBankListSchema.parse(request.query);
     return reply.send(await svc.listBanks(request.organizationId!, params));
   });
 
   fastify.get("/question-banks/:id", { preHandler: [requireAuth] }, async (request, reply) => {
     if (!requireOrg(reply, request.organizationId)) return;
-    await requireRole(request.organizationId!, request.user!.id!, ALL_STAFF);
+    await requireRole(request.organizationId!, request.user!.id!, CONTENT_ROLES);
     const { id } = IdParamSchema.parse(request.params);
     return reply.send({ data: await svc.getBank(id, request.organizationId!) });
   });

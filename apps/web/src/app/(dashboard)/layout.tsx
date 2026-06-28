@@ -27,8 +27,8 @@ type NavItem = { href: string; label: string; icon: React.ComponentType<{ classN
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: "any" },
   { href: "/candidates", label: "Candidates", icon: Users, roles: "candidates" },
-  { href: "/questions", label: "Questions", icon: Library, roles: "any" },
-  { href: "/questions/banks", label: "Question Banks", icon: BookOpen, roles: "any" },
+  { href: "/questions", label: "Questions", icon: Library, roles: "content" },
+  { href: "/questions/banks", label: "Question Banks", icon: BookOpen, roles: "content" },
   { href: "/sessions", label: "Interviews", icon: Calendar, roles: "any" },
   { href: "/reports", label: "Reports", icon: FileText, roles: "any" },
   { href: "/settings", label: "Org Settings", icon: Settings, roles: "hr" },

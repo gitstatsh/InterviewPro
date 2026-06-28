@@ -29,7 +29,7 @@ export function canManageSessions(role: MemberRole | null) {
   return role !== null && ["OWNER", "ADMIN", "ORG_HR"].includes(role);
 }
 export function canManageContent(role: MemberRole | null) {
-  return role !== null && ["OWNER", "ADMIN", "ORG_HR", "ORG_MEMBER", "MEMBER"].includes(role);
+  return role !== null && ["OWNER", "ADMIN", "ORG_MEMBER", "MEMBER"].includes(role);
 }
 export function canDeleteSessions(role: MemberRole | null) {
   return role !== null && ["OWNER", "ADMIN", "ORG_HR"].includes(role);

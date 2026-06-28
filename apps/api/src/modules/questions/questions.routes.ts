@@ -11,15 +11,19 @@ import * as svc from "./questions.service.js";
 import { requireRole, ALL_STAFF, CONTENT_ROLES } from "../../lib/rbac.js";
 
 const questionsRoutes: FastifyPluginAsync = async (fastify) => {
-  // Read: all members
+  // Read: content roles only (ORG_HR excluded)
   fastify.get("/questions", { preHandler: [requireAuth] }, async (request, reply) => {
+    const orgId = request.organizationId;
+    if (orgId) await requireRole(orgId, request.user!.id!, CONTENT_ROLES);
     const params = QuestionListSchema.parse(request.query);
-    return reply.send(await svc.listQuestions(request.organizationId, params));
+    return reply.send(await svc.listQuestions(orgId, params));
   });
 
   fastify.get("/questions/:id", { preHandler: [requireAuth] }, async (request, reply) => {
+    const orgId = request.organizationId;
+    if (orgId) await requireRole(orgId, request.user!.id!, CONTENT_ROLES);
     const { id } = IdParamSchema.parse(request.params);
-    return reply.send({ data: await svc.getQuestion(id, request.organizationId) });
+    return reply.send({ data: await svc.getQuestion(id, orgId) });
   });
 
   // Write: OWNER, ADMIN, ORG_MEMBER only
