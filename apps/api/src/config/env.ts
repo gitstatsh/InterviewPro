@@ -10,6 +10,7 @@ const EnvSchema = z.object({
   FROM_EMAIL: z.string().email().optional(),
   EMAIL_OVERRIDE_TO: z.string().email().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  COOKIE_DOMAIN: z.string().optional(),
   PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });

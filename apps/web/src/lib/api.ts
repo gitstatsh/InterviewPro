@@ -16,12 +16,14 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_URL}${path}`;
+  const method = (options.method ?? "GET").toUpperCase();
+  const hasBody = options.body !== undefined;
 
   const res = await fetch(url, {
     ...options,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(hasBody || ["POST", "PUT", "PATCH"].includes(method) ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
   });
