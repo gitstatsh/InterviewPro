@@ -193,7 +193,7 @@ export default function MembersPage() {
                           {m.user.id === currentUserId && (
                             <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/10 text-primary leading-none">Me</span>
                           )}
-                          {!m.user.emailVerified && m.user.id !== currentUserId && (
+                          {m.user.isPending && m.user.id !== currentUserId && (
                             <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 leading-none">Pending</span>
                           )}
                         </div>

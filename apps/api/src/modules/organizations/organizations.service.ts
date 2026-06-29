@@ -116,7 +116,12 @@ export async function listMembers(
     prisma.organizationMember.findMany({
       where,
       include: {
-        user: { select: { id: true, name: true, email: true, image: true, emailVerified: true } },
+        user: {
+          select: {
+            id: true, name: true, email: true, image: true, emailVerified: true,
+            accounts: { select: { providerId: true, password: true } },
+          },
+        },
       },
       orderBy: sortBy === "name"
         ? { user: { name: sortOrder } }
@@ -127,7 +132,15 @@ export async function listMembers(
     prisma.organizationMember.count({ where }),
   ]);
 
-  return { data: members, meta: paginationMeta(total, page, limit) };
+  const data = members.map(({ user: { accounts, ...user }, ...member }) => ({
+    ...member,
+    user: {
+      ...user,
+      isPending: !accounts.some((a) => a.providerId === "credential" && a.password),
+    },
+  }));
+
+  return { data, meta: paginationMeta(total, page, limit) };
 }
 
 export async function inviteMember(
