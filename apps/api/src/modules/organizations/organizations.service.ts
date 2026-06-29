@@ -210,15 +210,18 @@ async function sendInviteEmail({
     // Register capture BEFORE triggering the reset so sendResetPassword
     // hands the URL back here instead of sending a generic reset email
     const urlCapture = registerInviteCapture(invitee.email);
-    await fetch(`${env.BETTER_AUTH_URL}/api/auth/request-password-reset`, {
+    console.log(`[invite] triggering password reset for ${invitee.email} via ${env.BETTER_AUTH_URL}`);
+    const resetRes = await fetch(`${env.BETTER_AUTH_URL}/api/auth/request-password-reset`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: invitee.email, redirectTo: `${frontendUrl}/reset-password` }),
     });
+    console.log(`[invite] reset request status: ${resetRes.status}`);
     actionUrl = await Promise.race([
       urlCapture,
       new Promise<string>((_, reject) => setTimeout(() => reject(new Error("URL capture timeout")), 10000)),
     ]);
+    console.log(`[invite] captured reset URL: ${actionUrl}`);
     actionLabel = "Set up your account";
     bodyHtml = `
       <p>Hi,</p>
@@ -242,7 +245,8 @@ async function sendInviteEmail({
     `;
   }
 
-  await resend.emails.send({
+  console.log(`[invite] sending email to ${deliverTo} (invitee: ${invitee.email})`);
+  const result = await resend.emails.send({
     from,
     to: deliverTo,
     subject: `You've been invited to ${orgName} on Interview Platform`,
@@ -254,6 +258,7 @@ async function sendInviteEmail({
       </div>
     `,
   });
+  console.log(`[invite] email sent, id: ${(result as any)?.id ?? JSON.stringify(result)}`);
 }
 
 export async function removeMember(
