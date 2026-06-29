@@ -309,10 +309,8 @@ function AIGenerateModal({ orgId, onClose }: { orgId: string; onClose: () => voi
                         {q.category && <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{q.category}</span>}
                       </div>
                       <p className="font-medium text-sm text-foreground">{q.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                        {q.body}
-                        <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} />
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{q.body}</p>
+                      <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} />
                       {q.tags?.length > 0 && (
                         <div className="flex gap-1.5 mt-2 flex-wrap">
                           {q.tags.map((t: string) => <span key={t} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{t}</span>)}
@@ -445,10 +443,8 @@ export default function QuestionsPage() {
                   {q.tags?.map((t: string) => <span key={t} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{t}</span>)}
                 </div>
                 <p className="font-medium text-sm text-foreground">{q.title}</p>
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                  {q.body}
-                  <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} expectedAnswer={q.expectedAnswer} />
-                </p>
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{q.body}</p>
+                <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} expectedAnswer={q.expectedAnswer} />
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
                 <button onClick={() => { setActive(q); setModal("bank"); }} title="Add to bank" className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/5 transition"><BookOpen className="w-4 h-4" /></button>

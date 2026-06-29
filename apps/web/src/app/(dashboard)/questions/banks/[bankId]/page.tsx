@@ -112,10 +112,8 @@ function AIGenerateModal({ orgId, bankId, onClose }: { orgId: string; bankId: st
                     {selected.has(i) ? <CheckSquare className="w-4 h-4 text-primary shrink-0 mt-0.5" /> : <Square className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />}
                     <div className="min-w-0">
                       <p className="font-medium text-sm text-foreground">{q.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                        {q.body}
-                        <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} />
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{q.body}</p>
+                      <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} />
                       <div className="flex gap-1.5 mt-2 flex-wrap">
                         {q.tags?.map((t: string) => <span key={t} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{t}</span>)}
                       </div>
@@ -392,10 +390,8 @@ function GenerateFromJDModal({ orgId, bankId, onClose }: { orgId: string; bankId
                         {q.subCategory && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{q.subCategory}</span>}
                       </div>
                       <p className="font-medium text-sm text-foreground">{q.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                        {q.body}
-                        <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} expectedAnswer={q.expectedAnswer} />
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{q.body}</p>
+                      <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} expectedAnswer={q.expectedAnswer} />
                       {q.tags?.length > 0 && (
                         <div className="flex gap-1.5 mt-2 flex-wrap">
                           {q.tags.map((t: string) => <span key={t} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{t}</span>)}
@@ -540,10 +536,8 @@ export default function BankDetailPage() {
                   {q.tags?.map((t: string) => <span key={t} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{t}</span>)}
                 </div>
                 <p className="font-medium text-sm text-foreground">{q.title}</p>
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                  {q.body}
-                  <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} expectedAnswer={q.expectedAnswer} />
-                </p>
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{q.body}</p>
+                <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} expectedAnswer={q.expectedAnswer} />
               </div>
               {isOwn && (
                 <button onClick={() => handleRemove(q)} className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition shrink-0">

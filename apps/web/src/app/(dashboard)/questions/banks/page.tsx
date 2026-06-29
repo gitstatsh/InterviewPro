@@ -151,10 +151,8 @@ function GenerateFromJDModal({ orgId, banks, onClose }: { orgId: string; banks: 
                         {q.subCategory && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{q.subCategory}</span>}
                       </div>
                       <p className="font-medium text-sm text-foreground">{q.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                        {q.body}
-                        <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} />
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{q.body}</p>
+                      <QuestionDetailDialog title={q.title} body={q.body} difficulty={q.difficulty} category={q.category} tags={q.tags} />
                       {q.tags?.length > 0 && (
                         <div className="flex gap-1.5 mt-2 flex-wrap">
                           {q.tags.map((t: string) => <span key={t} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">{t}</span>)}
