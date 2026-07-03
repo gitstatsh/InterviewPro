@@ -28,9 +28,12 @@ RUN mkdir -p /app/apps/web/public
 
 WORKDIR /app/apps/web
 
-# Build-time env vars (public only)
+# Build-time env vars (public only). NEXT_PUBLIC_* are inlined at build time,
+# so the auth URL MUST be passed here — a runtime env is too late.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_AUTH_URL
+ENV NEXT_PUBLIC_AUTH_URL=$NEXT_PUBLIC_AUTH_URL
 ENV DOCKER_BUILD=1
 
 RUN pnpm build
