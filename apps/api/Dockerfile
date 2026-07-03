@@ -11,51 +11,44 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 
-RUN pnpm install --frozen-lockfile --filter @interview/api... --prod=false
+RUN pnpm install --frozen-lockfile --filter api... --prod=false
 
 # ── Stage 2: builder ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules 2>/dev/null || true
+# Bring the whole installed workspace (root + per-package node_modules with .bin)
+COPY --from=deps /app ./
 
 COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
 COPY package.json pnpm-workspace.yaml ./
 
-# Build shared package
+# Build shared package to CommonJS dist (Node ESM can import CJS; fixes extensionless imports).
+# Repoint its package.json to dist for runtime resolution — image only; the repo copy stays
+# source-based so local dev (tsx/Next/Vitest) keeps consuming the TypeScript source directly.
 WORKDIR /app/packages/shared
-RUN pnpm build 2>/dev/null || true
+RUN ./node_modules/.bin/tsc -p tsconfig.build.json \
+ && echo '{"type":"commonjs"}' > dist/package.json \
+ && node -e "const fs=require('fs'),p=require('./package.json');p.main='./dist/index.js';p.types='./dist/index.d.ts';p.exports={'.':{types:'./dist/index.d.ts',default:'./dist/index.js'}};fs.writeFileSync('./package.json',JSON.stringify(p,null,2));"
+
+# Generate Prisma client (must precede tsc so generated types exist)
+WORKDIR /app/apps/api
+RUN pnpm exec prisma generate
 
 # Build API (TypeScript → dist/)
-WORKDIR /app/apps/api
 RUN pnpm build
-
-# Generate Prisma client
-RUN pnpm exec prisma generate
 
 # ── Stage 3: runner ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init openssl libc6-compat
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Only production deps
-RUN corepack enable && corepack prepare pnpm@latest --activate
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY packages/shared/package.json ./packages/shared/
-RUN pnpm install --frozen-lockfile --filter @interview/api... --prod
-
-# Copy built artifacts
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/apps/api/node_modules/.prisma ./apps/api/node_modules/.prisma
-COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist 2>/dev/null || true
+# Copy the fully built workspace (incl. generated Prisma client) from builder
+COPY --from=builder /app ./
 
 WORKDIR /app/apps/api
 
@@ -64,8 +57,8 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 appuser
 USER appuser
 
 EXPOSE 3001
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:3001/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
+  CMD wget -qO- http://127.0.0.1:3001/health || exit 1
 
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/apps/api/src/server.js"]
