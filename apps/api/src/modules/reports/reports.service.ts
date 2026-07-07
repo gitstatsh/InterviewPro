@@ -113,6 +113,9 @@ export async function generateReportPDF(sessionId: string, organizationId: strin
 
   const browser = await puppeteer.launch({
     headless: true,
+    // In containers (Alpine) Puppeteer's bundled Chromium won't run; point it at
+    // the system Chromium via PUPPETEER_EXECUTABLE_PATH when set.
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
 

@@ -11,6 +11,9 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 
+# Don't download Puppeteer's bundled Chromium (glibc build won't run on Alpine musl);
+# the runner installs the system Chromium instead.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN pnpm install --frozen-lockfile --filter api... --prod=false
 
 # ── Stage 2: builder ───────────────────────────────────────────────────────────
@@ -42,10 +45,15 @@ RUN pnpm build
 
 # ── Stage 3: runner ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache dumb-init openssl libc6-compat
+# chromium + fonts for Puppeteer PDF rendering; openssl for Prisma
+RUN apk add --no-cache dumb-init openssl libc6-compat \
+    chromium nss freetype harfbuzz ca-certificates ttf-freefont
 WORKDIR /app
 
 ENV NODE_ENV=production
+# Puppeteer uses the system Chromium installed above
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy the fully built workspace (incl. generated Prisma client) from builder
 COPY --from=builder /app ./
