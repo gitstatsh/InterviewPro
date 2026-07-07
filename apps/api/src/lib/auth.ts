@@ -12,6 +12,16 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
   trustedOrigins: [env.FRONTEND_URL],
+  // When the web app and API live on different subdomains (e.g. app./api.),
+  // share the session cookie across the parent domain. Requires HTTPS.
+  ...(env.COOKIE_DOMAIN
+    ? {
+        advanced: {
+          crossSubDomainCookies: { enabled: true, domain: env.COOKIE_DOMAIN },
+          defaultCookieAttributes: { sameSite: "none" as const, secure: true },
+        },
+      }
+    : {}),
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
