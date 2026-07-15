@@ -4,7 +4,6 @@
 
 ### Phase 1 — Auth & Setup
 - [x] Monorepo scaffold (pnpm + Turborepo)
-- [x] Docker Compose (PostgreSQL + Redis)
 - [x] Prisma schema — all models defined
 - [x] Fastify app with plugins (CORS, cookie, rate-limit, auth, tenant)
 - [x] Better Auth integration (email+password, session cookie)
@@ -91,10 +90,6 @@
 - [x] Vitest v2 config
 
 ### Phase 12 — Deployment
-- [x] Multi-stage Dockerfile for API
-- [x] Multi-stage Dockerfile for web (Next.js standalone)
-- [x] docker-compose.prod.yml
-- [x] fly.toml (Fly.io API deployment)
 - [x] vercel.json (Vercel web deployment)
 - [x] /health endpoint on API
 - [x] Sentry error tracking (optional, no-op when DSN not set)

@@ -1,0 +1,109 @@
+name: COBRA change-aware tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run a baseline or analyze an impact range
+        required: true
+        type: choice
+        options: [impact, baseline]
+        default: impact
+      base_ref:
+        description: Base Git ref for impact mode
+        required: false
+        default: main
+      head_ref:
+        description: Head Git ref or SHA
+        required: false
+      application_url:
+        description: Commit-matched instrumented application URL
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  cobra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: cobra-staging
+    env:
+      E2E_BASE_URL: ${{ inputs.application_url || secrets.COBRA_E2E_BASE_URL }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_ref || github.sha }}
+
+    steps:
+      - name: Check out full Git history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.head_ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm through Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Install Chrome test browser
+        run: corepack pnpm --dir apps/web exec playwright install --with-deps chromium
+
+      - name: Restore latest baseline mapping
+        uses: actions/cache@v4
+        with:
+          path: .cobra
+          key: cobra-history-${{ github.base_ref || github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            cobra-history-${{ github.base_ref || github.ref_name }}-
+            cobra-history-
+
+      - name: Validate COBRA environment
+        shell: bash
+        env:
+          E2E_LOGIN_EMAIL: ${{ secrets.COBRA_E2E_LOGIN_EMAIL }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.COBRA_E2E_LOGIN_PASSWORD }}
+        run: |
+          test -n "$E2E_BASE_URL" || (echo "COBRA_E2E_BASE_URL/application_url is required" && exit 1)
+          test -n "$E2E_LOGIN_EMAIL" || (echo "COBRA_E2E_LOGIN_EMAIL is required" && exit 1)
+          test -n "$E2E_LOGIN_PASSWORD" || (echo "COBRA_E2E_LOGIN_PASSWORD is required" && exit 1)
+
+      - name: Publish commit-matched baseline
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline') }}
+        env:
+          E2E_LOGIN_EMAIL: ${{ secrets.COBRA_E2E_LOGIN_EMAIL }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.COBRA_E2E_LOGIN_PASSWORD }}
+        run: corepack pnpm cobra:baseline --commit "$HEAD_SHA" --base-url "$E2E_BASE_URL"
+
+      - name: Analyze changes and run safe impacted tests
+        if: ${{ github.event_name == 'pull_request' || inputs.mode == 'impact' }}
+        env:
+          E2E_LOGIN_EMAIL: ${{ secrets.COBRA_E2E_LOGIN_EMAIL }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.COBRA_E2E_LOGIN_PASSWORD }}
+        run: corepack pnpm cobra:impact --base "$BASE_SHA" --head "$HEAD_SHA" --base-url "$E2E_BASE_URL"
+
+      - name: Upload dashboard and COBRA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobra-${{ github.run_id }}
+          path: |
+            .cobra/dashboard
+            .cobra/builds
+            .cobra/mappings
+            .cobra/runs
+            playwright-report
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: warn
+          retention-days: 14

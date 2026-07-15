@@ -15,6 +15,7 @@ import summariesRoutes from "./modules/summaries/summaries.routes.js";
 import reportsRoutes from "./modules/reports/reports.routes.js";
 import analyticsRoutes from "./modules/analytics/analytics.routes.js";
 import questionBanksRoutes from "./modules/question-banks/question-banks.routes.js";
+import cobraRoutes from "./modules/cobra/cobra.routes.js";
 import { env } from "./config/env.js";
 import { captureException } from "./lib/sentry.js";
 
@@ -55,6 +56,13 @@ export async function buildApp() {
 
   await app.register(authPlugin);
   await app.register(tenantPlugin);
+
+  // COBRA: register test-support coverage endpoints only when explicitly
+  // opted in. Never registered in production even if the module is present.
+  if (env.TEST_MODE === "1" || env.COBRA_ENABLED === "1") {
+    const { default: cobraPlugin } = await import("./testing/cobra-routes.js");
+    await app.register(cobraPlugin);
+  }
 
   // ── Error Handler ─────────────────────────────────────────────────────────
 
@@ -111,6 +119,7 @@ export async function buildApp() {
   await app.register(reportsRoutes, { prefix: "/api/v1" });
   await app.register(analyticsRoutes, { prefix: "/api/v1" });
   await app.register(questionBanksRoutes, { prefix: "/api/v1" });
+  await app.register(cobraRoutes, { prefix: "/api/v1" });
   // Also expose Better Auth at its native path (no /api/v1 prefix)
   await app.all("/api/auth/*", async (request, reply) => {
     const { auth: betterAuth } = await import("./lib/auth.js");

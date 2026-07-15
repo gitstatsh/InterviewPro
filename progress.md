@@ -15,7 +15,7 @@ All 12 planned phases are implemented. The platform is functionally complete for
 9. **PDF reports** — Puppeteer renders full HTML report to PDF; email via Resend
 10. **Analytics dashboard** — Recharts charts, stat cards, top questions, date filtering
 11. **Test suite** — 181 Vitest tests passing (132 unit + 49 integration); Playwright e2e scaffolded
-12. **Deployment** — Dockerfiles, docker-compose.prod.yml, fly.toml (API), vercel.json (web)
+12. **Deployment** — Vercel configuration for the web application
 
 ---
 

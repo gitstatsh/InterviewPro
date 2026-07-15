@@ -11,9 +11,18 @@
     "db:generate": "turbo run db:generate",
     "db:migrate": "turbo run db:migrate",
     "db:push": "turbo run db:push",
-    "db:studio": "pnpm --filter api db:studio"
+    "db:studio": "pnpm --filter api db:studio",
+    "test:hosted": "corepack pnpm --dir apps/web exec playwright test",
+    "test:coverage": "cross-env HOSTED_COVERAGE=1 corepack pnpm --dir apps/web exec playwright test",
+    "test:automation": "corepack pnpm --dir apps/web exec playwright test --config ../../automationTestcase/playwright.config.ts",
+    "test:automation:typecheck": "corepack pnpm --dir apps/web exec tsc -p ../../automationTestcase/tsconfig.json --noEmit",
+    "test:automation:coverage": "cross-env HOSTED_COVERAGE=1 corepack pnpm --dir apps/web exec playwright test --config ../../automationTestcase/playwright.config.ts",
+    "cobra:baseline": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts baseline",
+    "cobra:impact": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts impact",
+    "cobra:dashboard": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts dashboard"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
   },

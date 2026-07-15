@@ -1,0 +1,22 @@
+{
+  "extends": "../apps/api/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "outDir": "../.cobra/tsbuild",
+    "types": ["node"],
+    "typeRoots": ["../apps/api/node_modules/@types", "../node_modules/@types"],
+    "paths": {
+      "@interview/shared": ["../packages/shared/src/index.ts"]
+    }
+  },
+  "include": [
+    "./cobra-runner.ts",
+    "../apps/api/src/modules/cobra/cobra-git.ts",
+    "../apps/api/src/modules/cobra/cobra-impact.ts",
+    "../apps/web/tests/support/cobra/cobra-dashboard.ts",
+    "../apps/web/tests/support/cobra/cobra-source-inventory.ts",
+    "../packages/shared/src/**/*.ts"
+  ]
+}

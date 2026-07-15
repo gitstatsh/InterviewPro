@@ -16,6 +16,7 @@ import {
   Settings,
   LogOut,
   UserCircle,
+  ShieldCheck,
 } from "lucide-react";
 import { OrgSwitcher } from "@/components/features/organizations/org-switcher";
 import { useMyRole, canManageContent, canManageCandidates, canInviteMembers } from "@/hooks/use-organizations";
@@ -31,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/questions/banks", label: "Question Banks", icon: BookOpen, roles: "content" },
   { href: "/sessions", label: "Interviews", icon: Calendar, roles: "any" },
   { href: "/reports", label: "Reports", icon: FileText, roles: "any" },
+  { href: "/cobra", label: "COBRA", icon: ShieldCheck, roles: "any" },
   { href: "/settings", label: "Org Settings", icon: Settings, roles: "hr" },
   { href: "/settings/members", label: "Members", icon: Users, roles: "hr" },
   { href: "/profile", label: "Profile", icon: UserCircle, roles: "any" },

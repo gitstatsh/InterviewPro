@@ -8,3 +8,4 @@ export * from "./schemas/candidates";
 export * from "./schemas/sessions";
 export * from "./schemas/assessments";
 export * from "./types/api";
+export * from "./types/cobra";

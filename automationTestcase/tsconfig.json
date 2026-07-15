@@ -1,0 +1,25 @@
+{
+  "extends": "../apps/web/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "incremental": false,
+    "noEmit": true,
+    "types": ["node"],
+    "typeRoots": [
+      "../apps/web/node_modules/@types"
+    ],
+    "paths": {
+      "@playwright/test": [
+        "apps/web/node_modules/@playwright/test"
+      ],
+      "@interview/shared": [
+        "packages/shared/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "./**/*.ts",
+    "../apps/web/tests/support/cobra/**/*.ts",
+    "../packages/shared/src/**/*.ts"
+  ]
+}

@@ -52,11 +52,12 @@ function LoginForm() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
+          <label htmlFor="login-email" className="block text-sm font-medium text-foreground mb-1.5">
             Email address
           </label>
           <input
             {...register("email")}
+            id="login-email"
             type="email"
             autoComplete="email"
             placeholder="you@company.com"
@@ -69,7 +70,7 @@ function LoginForm() {
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-sm font-medium text-foreground">
+            <label htmlFor="login-password" className="block text-sm font-medium text-foreground">
               Password
             </label>
             <Link
@@ -81,6 +82,7 @@ function LoginForm() {
           </div>
           <input
             {...register("password")}
+            id="login-password"
             type="password"
             autoComplete="current-password"
             placeholder="••••••••"

@@ -13,6 +13,13 @@ const EnvSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  // COBRA (Code OBserver and Risk Analytics) — POC test-mode coverage capture.
+  // Never set TEST_MODE=1 in production; it exposes /__coverage__/* endpoints.
+  TEST_MODE: z.enum(["0", "1"]).default("0"),
+  COBRA_ENABLED: z.enum(["0", "1"]).default("0"),
+  COBRA_AUTO_RUN: z.enum(["0", "1"]).default("0"),
+  COBRA_TOKEN: z.string().optional(),
+  COBRA_STORAGE_DIR: z.string().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

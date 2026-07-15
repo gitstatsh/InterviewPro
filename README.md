@@ -21,7 +21,7 @@ Enterprise SaaS platform for standardizing technical interviews across organizat
 
 - Node.js 20+
 - pnpm 9+
-- Docker + Docker Compose
+- Access to PostgreSQL and Redis services when running the API
 
 ## Quick Start
 
@@ -47,19 +47,13 @@ Edit both `.env` files with your values. At minimum:
 - `RESEND_API_KEY` — from resend.com (optional for development)
 - `ANTHROPIC_API_KEY` — from console.anthropic.com (optional for Phase 1)
 
-### 3. Start infrastructure
-
-```bash
-docker compose up -d
-```
-
-### 4. Run database migrations
+### 3. Run database migrations
 
 ```bash
 pnpm db:migrate
 ```
 
-### 5. Start development servers
+### 4. Start development servers
 
 ```bash
 pnpm dev
@@ -77,9 +71,84 @@ pnpm test
 # API tests only
 pnpm --filter api test
 
-# E2E tests (requires running dev server)
-pnpm --filter web test:e2e
+# Hosted E2E tests (uses E2E_BASE_URL from apps/web/.env)
+corepack pnpm test:hosted
+
+# Hosted Chrome tests with browser JavaScript coverage dashboard
+corepack pnpm test:coverage
+
+# Dedicated login and primary-page navigation smoke test
+corepack pnpm test:automation
+
+# Run the automation smoke test and regenerate the coverage dashboard
+corepack pnpm test:automation:coverage
 ```
+
+The credential-login test reads `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD`
+from `apps/web/.env` and is skipped when they are not set. Its hosted login and
+navigation scenario lives in `automationTestcase/login-navigation.spec.ts`.
+
+## Hosted automation
+
+Playwright targets `https://app.techinterview.co.in` by default and does not
+start local web, API, database, or Redis services. Run `corepack pnpm
+test:hosted` for functional validation. Run `corepack pnpm test:coverage` to
+capture per-test browser JavaScript coverage and generate the standalone
+dashboard at `.cobra/dashboard/index.html`.
+
+The hosted dashboard reports generated browser-script coverage because the
+public application does not expose server-side V8 coverage or production
+source maps. It requires no local web, API, database, or Redis service.
+
+### Safety-first COBRA runner
+
+Use the stable suite in `automationTestcase/playwright.config.ts` to publish a
+complete baseline mapping:
+
+```bash
+corepack pnpm cobra:baseline
+# Validate discovery and deployment metadata without running tests:
+corepack pnpm cobra:baseline --dry-run
+```
+
+Analyze two Git commits and execute either the impacted spec files or the full
+suite when mapping, source-map, or deployment identity is uncertain:
+
+```bash
+corepack pnpm cobra:impact --base origin/main --head HEAD
+corepack pnpm cobra:impact --base origin/main --head HEAD --dry-run
+```
+
+Impact mode requires a valid Git repository and verifies that the hosted
+`/api/cobra-build` commit matches `--head`. A mismatch refuses execution; an
+unavailable build identity or source map falls back to full regression.
+
+Regenerate the static dashboard for the latest run or a named run:
+
+```bash
+corepack pnpm cobra:dashboard
+corepack pnpm cobra:dashboard --run <run-id>
+```
+
+The unified dashboard separates two different metrics:
+
+- **Whole source line touch** inventories every application source file,
+  including untested files at 0%. It becomes selectable evidence only when a
+  commit-matched deployment supplies source maps.
+- **Loaded JavaScript coverage** is Chromium coverage for bundles observed by
+  the hosted test. It is useful runtime evidence but is never used to match a
+  Git source path.
+
+For safe selective execution, deploy this revision with
+`COBRA_SOURCE_MAPS=1` and the `/api/cobra-build` endpoint, then run the baseline
+against that exact deployment. Without either signal COBRA automatically runs
+the full configured suite.
+
+The authenticated `/cobra/analyze` and token-guarded Git webhook endpoints are
+planning APIs only. Verified test execution is intentionally limited to
+`cobra:impact` (and `.github/workflows/cobra.yml`) because the runner must own a
+real checkout of both revisions. Every impact outcome writes a dashboard
+snapshot, including deployment mismatches and zero-test decisions.
 
 ## API Endpoints (Phase 1)
 
@@ -126,7 +195,6 @@ interview-platform/
 │   └── web/          # Next.js frontend
 ├── packages/
 │   └── shared/       # Shared Zod schemas + types
-└── docker-compose.yml
 ```
 
 ## Phases

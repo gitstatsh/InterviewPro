@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/cobra/cobra-fixture";
 
 const TEST_USER = { email: "jane@example.com", password: "SecurePass1" };
 

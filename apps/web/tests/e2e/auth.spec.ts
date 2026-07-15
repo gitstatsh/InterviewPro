@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/cobra/cobra-fixture";
 
 test.describe("Authentication", () => {
   test("shows login page for unauthenticated users", async ({ page }) => {

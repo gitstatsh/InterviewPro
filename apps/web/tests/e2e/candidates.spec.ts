@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/cobra/cobra-fixture";
 
 // These tests require a running API + seeded DB.
 // Run with: pnpm --filter web test:e2e
