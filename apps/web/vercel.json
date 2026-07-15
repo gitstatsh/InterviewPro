@@ -1,12 +1,13 @@
 {
   "framework": "nextjs",
-  "buildCommand": "cd ../.. && pnpm --filter @interview/web build",
-  "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && corepack pnpm --filter web build",
+  "installCommand": "cd ../.. && corepack pnpm install --frozen-lockfile",
   "outputDirectory": ".next",
   "env": {
     "NEXT_PUBLIC_API_URL": "@next_public_api_url",
     "NEXT_PUBLIC_AUTH_URL": "@next_public_auth_url",
-    "BETTER_AUTH_SECRET": "@better_auth_secret"
+    "BETTER_AUTH_SECRET": "@better_auth_secret",
+    "COBRA_SOURCE_MAPS": "1"
   },
   "headers": [
     {

@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: ["@interview/shared"],
-  output: process.env.DOCKER_BUILD === "1" ? "standalone" : undefined,
+  // Use only on a commit-matched COBRA staging deployment. Publishing browser
+  // source maps is a deliberate security tradeoff because they expose source.
+  productionBrowserSourceMaps: process.env.COBRA_SOURCE_MAPS === "1",
   async rewrites() {
     const apiUrl = process.env.INTERNAL_API_URL ?? "http://localhost:3001";
     const rules = [
