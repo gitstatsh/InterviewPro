@@ -20,6 +20,7 @@
     "cobra:source-maps": "cross-env COBRA_SOURCE_MAPS=1 corepack pnpm --filter web build",
     "cobra:baseline": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts baseline",
     "cobra:impact": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts impact",
+    "cobra:impact:modules": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts impact --strategy modules",
     "cobra:dashboard": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts dashboard"
   },
   "devDependencies": {

@@ -16,8 +16,13 @@ test.describe("Left sidebar navigation", () => {
   });
 
   for (const pageName of sidebarPageNames) {
-    test(`navigates to ${pageName}`, async ({ page }) => {
-      await navigateToSidebarPage(page, pageName);
-    });
+    const tag = `@cobra:${pageName.toLowerCase().replaceAll(" ", "-")}`;
+    test(
+      `navigates to ${pageName}`,
+      { tag },
+      async ({ page }) => {
+        await navigateToSidebarPage(page, pageName);
+      }
+    );
   }
 });

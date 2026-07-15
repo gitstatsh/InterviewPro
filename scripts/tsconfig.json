@@ -15,6 +15,7 @@
     "./cobra-runner.ts",
     "../apps/api/src/modules/cobra/cobra-git.ts",
     "../apps/api/src/modules/cobra/cobra-impact.ts",
+    "../apps/api/src/modules/cobra/cobra-module-impact.ts",
     "../apps/web/tests/support/cobra/cobra-dashboard.ts",
     "../apps/web/tests/support/cobra/cobra-source-inventory.ts",
     "../packages/shared/src/**/*.ts"

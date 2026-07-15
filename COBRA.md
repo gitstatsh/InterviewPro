@@ -1,8 +1,9 @@
 # COBRA — Code OBserver and Risk Analytics
 
-> **Safety rule:** COBRA skips tests only when the Git base revision, promoted
-> source mapping, and hosted deployment identity are all verified. Missing or
-> uncertain evidence always selects full regression.
+> **Safety rule:** Source-line selection requires a verified deployment and
+> trusted mapping. Deployment-independent module selection skips tests only
+> when every changed path has a reviewed rule in `cobra.modules.json`.
+> Shared, unknown, or invalid mappings always select full regression.
 
 COBRA maps Playwright tests to application source through Chromium V8 coverage,
 analyzes Git changes, runs only impacted tests, collects results, and exposes a
@@ -11,12 +12,13 @@ standalone dashboard at `.cobra/dashboard/index.html`. All state is stored below
 
 ## Runtime flow
 
-1. `cobra:impact` validates the Git repository and resolves exact base/head SHAs.
+1. `cobra:impact:modules` validates the Git repository and resolves exact base/head SHAs.
 2. The Git adapter compares the exact base/head trees and parses rename-aware
    zero-context diff hunks, including type changes and per-hunk structure.
-3. The impact analyzer requires every changed old-side line to have mapping evidence.
-4. COBRA verifies `/api/cobra-build` matches the requested head deployment.
-5. It runs mapped spec files, or the full stable suite on any uncertainty.
+3. The module analyzer maps every changed path to stable Playwright tags.
+4. Shared, unknown, or invalid paths select the full stable suite.
+5. The strict `cobra:impact` strategy separately verifies source lines and the
+   `/api/cobra-build` deployment when that hosting integration is available.
 6. Results, mappings, coverage and build history are rendered in one dashboard.
 
 If any changed file or line has no mapping, COBRA deliberately chooses
@@ -89,12 +91,17 @@ fallback when deployment identity is unavailable.
 
 ## Running the engine
 
-Run a Git change locally or in CI:
+Run a Git change locally or in CI without a deployment integration:
 
 ```bash
-corepack pnpm cobra:impact --base origin/main --head HEAD
+corepack pnpm cobra:impact:modules --base origin/main --head HEAD
 corepack pnpm cobra:dashboard
 ```
+
+The reviewed path-to-test rules are stored in `cobra.modules.json`. Each test
+uses a stable `@cobra:<module>` tag. Added, deleted, renamed, or structurally
+changed files can be selected when every involved path is mapped; any unknown
+path runs all tests.
 
 Impact mode requires real Git history. The public application repository is
 `https://github.com/gitstatsh/InterviewPro.git`; clone it normally or keep this
@@ -137,6 +144,7 @@ each listed path as a whole-file change.
 |---|---|
 | Intake service | `apps/api/src/modules/cobra/cobra.routes.ts` |
 | Impact analyzer | `apps/api/src/modules/cobra/cobra-impact.ts` |
+| Module fallback analyzer | `apps/api/src/modules/cobra/cobra-module-impact.ts`, `cobra.modules.json` |
 | Mapping service | `apps/web/tests/support/cobra/cobra-persist.ts` |
 | Git adapter | `apps/api/src/modules/cobra/cobra-git.ts` |
 | Verified test orchestrator | `scripts/cobra-runner.ts` |
@@ -166,17 +174,19 @@ and valid changes that select zero tests.
 
 ## CI
 
-`.github/workflows/cobra.yml` checks out full history, restores the latest
-branch baseline mapping, verifies a commit-matched deployment, runs impact or
-baseline mode, and uploads mappings, builds, runs, Playwright reports, and the
-standalone dashboard. Configure these staging-only secrets:
+`.github/workflows/cobra.yml` checks out full history and runs module impact on
+every push or pull request without waiting for a deployment. A manually
+requested source baseline still verifies the hosted revision. The workflow
+uploads mappings, builds, runs, Playwright reports, and the standalone
+dashboard. Configure these staging-only secrets:
 
 - `COBRA_E2E_BASE_URL`
 - `COBRA_E2E_LOGIN_EMAIL`
 - `COBRA_E2E_LOGIN_PASSWORD`
 
-The URL must identify the exact head deployment through `/api/cobra-build` and
-must be built with `COBRA_SOURCE_MAPS=1` before selective skipping is allowed.
+The module strategy uses the URL as the test target without claiming it is the
+Git head. Manual source-line baselines still require `/api/cobra-build` and
+`COBRA_SOURCE_MAPS=1`.
 
 ## Storage layout
 

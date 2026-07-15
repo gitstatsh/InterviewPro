@@ -35,7 +35,7 @@ jobs:
     env:
       E2E_BASE_URL: ${{ inputs.application_url || secrets.COBRA_E2E_BASE_URL }}
       E2E_HEADED: "false"
-      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base_ref }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_ref || github.sha }}
 
     steps:
@@ -80,7 +80,7 @@ jobs:
           test -n "$E2E_LOGIN_PASSWORD" || (echo "COBRA_E2E_LOGIN_PASSWORD is required" && exit 1)
 
       - name: Wait for commit-matched source-map deployment
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline' }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
@@ -120,18 +120,18 @@ jobs:
           NODE
 
       - name: Publish commit-matched baseline
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline' }}
         env:
           E2E_LOGIN_EMAIL: ${{ secrets.COBRA_E2E_LOGIN_EMAIL }}
           E2E_LOGIN_PASSWORD: ${{ secrets.COBRA_E2E_LOGIN_PASSWORD }}
         run: corepack pnpm cobra:baseline --commit "$HEAD_SHA" --base-url "$E2E_BASE_URL"
 
-      - name: Analyze changes and run safe impacted tests
-        if: ${{ github.event_name == 'pull_request' || inputs.mode == 'impact' }}
+      - name: Analyze Git modules and run impacted tests
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'impact') }}
         env:
           E2E_LOGIN_EMAIL: ${{ secrets.COBRA_E2E_LOGIN_EMAIL }}
           E2E_LOGIN_PASSWORD: ${{ secrets.COBRA_E2E_LOGIN_PASSWORD }}
-        run: corepack pnpm cobra:impact --base "$BASE_SHA" --head "$HEAD_SHA" --base-url "$E2E_BASE_URL"
+        run: corepack pnpm cobra:impact:modules --base "$BASE_SHA" --head "$HEAD_SHA" --base-url "$E2E_BASE_URL"
 
       - name: Upload dashboard and COBRA artifacts
         if: always()

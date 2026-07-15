@@ -14,6 +14,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzeImpact } from "../apps/api/src/modules/cobra/cobra-impact.js";
 import { collectGitChanges as collectRepositoryChanges } from "../apps/api/src/modules/cobra/cobra-git.js";
+import {
+  analyzeModuleImpact,
+  fullModuleRegressionDecision,
+  parseCobraModuleMap,
+  type CobraModuleMap,
+  type CobraModuleTest,
+} from "../apps/api/src/modules/cobra/cobra-module-impact.js";
 import { generateCoverageDashboard } from "../apps/web/tests/support/cobra/cobra-dashboard.js";
 import { isTrustedCobraMapping } from "../packages/shared/src/types/cobra.js";
 import type {
@@ -42,10 +49,12 @@ const BUILDS_DIR = path.join(COBRA_ROOT, "builds");
 const MAPPINGS_DIR = path.join(COBRA_ROOT, "mappings");
 const TRUSTED_MAPPING_FILE = path.join(MAPPINGS_DIR, "trusted.json");
 const LATEST_MAPPING_FILE = path.join(MAPPINGS_DIR, "latest.json");
+const MODULE_MAPPING_FILE = path.join(REPO_ROOT, "cobra.modules.json");
 const DEFAULT_BASE_URL = "https://app.techinterview.co.in";
 const MAX_GIT_OUTPUT = 20 * 1024 * 1024;
 
 type CommandName = "baseline" | "impact" | "dashboard" | "help";
+type ImpactStrategy = "source" | "modules";
 
 type CliOptions = {
   command: CommandName;
@@ -54,6 +63,7 @@ type CliOptions = {
   run?: string;
   commit?: string;
   baseUrl?: string;
+  strategy?: ImpactStrategy;
   dryRun: boolean;
 };
 
@@ -69,6 +79,8 @@ type RunnerBuild = CobraBuild & {
   warnings?: string[];
   deployment?: DeploymentBuild;
   selectedSpecFiles?: string[];
+  selectedTestTags?: string[];
+  strategy?: ImpactStrategy;
 };
 
 type ProcessResult = {
@@ -92,15 +104,15 @@ function printHelp(): void {
 
 Usage:
   cobra-runner baseline [--run <id>] [--commit <sha>] [--base-url <url>] [--dry-run]
-  cobra-runner impact --base <ref> --head <ref> [--run <id>] [--base-url <url>] [--dry-run]
+  cobra-runner impact --base <ref> --head <ref> [--strategy source|modules] [--run <id>] [--base-url <url>] [--dry-run]
   cobra-runner dashboard [--run <id>] [--dry-run]
 
 Commands:
   baseline   Discover and run every test configured by automationTestcase/playwright.config.ts.
              A baseline is promoted only when Playwright records the exact discovered count.
-  impact     Diff two verified Git commits, analyze the baseline mapping, and run either the
-             full automation suite or the exact mapped spec files. A missing or mismatched
-             deployment identity fails closed; source-map uncertainty runs the full suite.
+  impact     Diff two verified Git commits and run the selected automation tests. The source
+             strategy requires deployment evidence; the modules strategy uses the reviewed
+             repository path map and needs no hosting integration.
   dashboard  Regenerate .cobra/dashboard/index.html for a run (latest run by default).
 
 Options:
@@ -109,6 +121,7 @@ Options:
   --run <id>         Explicit filesystem-safe run/build ID.
   --commit <sha>     Baseline commit override when local Git metadata is unavailable.
   --base-url <url>   Hosted application URL (defaults to E2E_BASE_URL or ${DEFAULT_BASE_URL}).
+  --strategy <name>  Impact selector: source (default) or modules (deployment-independent).
   --dry-run          Validate and print the plan without starting Playwright or writing state.
   -h, --help         Show this help.
 `);
@@ -135,6 +148,7 @@ function parseArgs(argv: string[]): CliOptions {
     "--run": "run",
     "--commit": "commit",
     "--base-url": "baseUrl",
+    "--strategy": "strategy",
   };
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -164,6 +178,12 @@ function parseArgs(argv: string[]): CliOptions {
   }
   if (options.command !== "baseline" && options.commit) {
     throw new Error("--commit is only valid with baseline");
+  }
+  if (options.command !== "impact" && options.strategy) {
+    throw new Error("--strategy is only valid with impact");
+  }
+  if (options.strategy && options.strategy !== "source" && options.strategy !== "modules") {
+    throw new Error("--strategy must be source or modules");
   }
   return options;
 }
@@ -522,6 +542,88 @@ function selectedSpecFiles(
   return { files: [...files].sort(), warnings };
 }
 
+function readModuleMap(): CobraModuleMap {
+  let value: unknown;
+  try {
+    value = JSON.parse(fs.readFileSync(MODULE_MAPPING_FILE, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Unable to read ${path.basename(MODULE_MAPPING_FILE)}: ${(error as Error).message}`
+    );
+  }
+  try {
+    return parseCobraModuleMap(value);
+  } catch (error) {
+    throw new Error(`Invalid COBRA module map: ${(error as Error).message}`);
+  }
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[|\\{}()[\]^$+*?.-]/g, "\\$&");
+}
+
+function modulePlaywrightSelection(selectedTests: CobraModuleTest[]): {
+  args: string[];
+  files: string[];
+  tags: string[];
+  warnings: string[];
+} {
+  const files = new Set<string>();
+  const tags = new Set<string>();
+  const warnings: string[] = [];
+
+  for (const test of selectedTests) {
+    const absolute = path.resolve(REPO_ROOT, test.specFile);
+    const relativeToAutomation = path.relative(AUTOMATION_DIR, absolute);
+    if (
+      relativeToAutomation.startsWith("..") ||
+      path.isAbsolute(relativeToAutomation) ||
+      !fs.existsSync(absolute)
+    ) {
+      warnings.push(`Module test ${test.id} has an unavailable spec: ${test.specFile}`);
+      continue;
+    }
+    const playwrightFile = normalizeRepoPath(path.relative(WEB_DIR, absolute));
+    const tagPattern = escapeRegex(test.tag);
+    try {
+      const count = discoverAutomationTestCount([playwrightFile, "--grep", tagPattern]);
+      if (count !== 1) {
+        warnings.push(
+          `Module test ${test.id} tag ${test.tag} resolved to ${count} tests instead of exactly one.`
+        );
+        continue;
+      }
+    } catch (error) {
+      warnings.push(
+        `Module test ${test.id} tag validation failed: ${(error as Error).message}`
+      );
+      continue;
+    }
+    files.add(playwrightFile);
+    tags.add(test.tag);
+  }
+
+  if (warnings.length > 0 || tags.size !== selectedTests.length) {
+    return { args: [], files: [], tags: [], warnings };
+  }
+  const pattern = [...tags].map(escapeRegex).join("|");
+  const args = [...files].sort();
+  args.push("--grep", `(?:${pattern})`);
+  const combinedCount = discoverAutomationTestCount(args);
+  if (combinedCount !== selectedTests.length) {
+    warnings.push(
+      `Combined module selection resolved to ${combinedCount} tests instead of ${selectedTests.length}.`
+    );
+    return { args: [], files: [], tags: [], warnings };
+  }
+  return {
+    args,
+    files: [...files].sort(),
+    tags: [...tags].sort(),
+    warnings,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -864,77 +966,134 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
     head: headSha,
   });
   context.changedFiles = changedFiles;
-  const mappingResult = readMappingSafely();
-  const mapping = mappingResult.mapping;
-  context.mapping = mapping;
   const baseUrl = context.baseUrl;
-  const deployment = await readDeploymentBuild(baseUrl);
-  context.deployment = deployment;
+  const strategy = options.strategy ?? "source";
   const warnings: string[] = [];
-  if (mappingResult.warning) warnings.push(mappingResult.warning);
-
-  if (changedFiles.length > 0 && (!deployment.available || !deployment.commitSha)) {
-    throw new Error(
-      `Refusing impact execution: hosted deployment identity is unavailable at ${deployment.endpoint}. ` +
-        "COBRA cannot prove that the tested application is the requested head revision."
-    );
-  }
-  if (
-    changedFiles.length > 0 &&
-    !shasPrefixMatch(deployment.commitSha, headSha)
-  ) {
-    throw new Error(
-      `Refusing impact execution: hosted deployment ${deployment.commitSha} does not match requested head ${headSha}.`
-    );
-  }
-
-  let trustedMapping = mapping;
-  if (deployment.warning) warnings.push(deployment.warning);
-  if (changedFiles.length > 0) {
-    if (deployment.sourceMaps !== true) {
-      warnings.push("Hosted browser source maps are unavailable or unverified; selective skipping is disabled.");
-      trustedMapping = null;
-    }
-    if (!mapping?.baselineCommitSha || !shasPrefixMatch(mapping.baselineCommitSha, baseSha)) {
-      warnings.push("The promoted baseline does not match the requested base revision; selective skipping is disabled.");
-      trustedMapping = null;
-    }
-    if (mapping?.deploymentVerified !== true) {
-      warnings.push("The promoted baseline was not verified against its deployed revision; selective skipping is disabled.");
-      trustedMapping = null;
-    }
-    if (mapping?.coverageCapability !== "source") {
-      warnings.push("The promoted baseline is not exact source coverage; selective skipping is disabled.");
-      trustedMapping = null;
-    }
-  }
-
-  // Identical trees need no test execution and do not depend on mapping or
-  // deployment trust. For any real change, uncertainty still means full suite.
-  let selection =
-    changedFiles.length === 0
-      ? analyzeImpact(mapping, changedFiles)
-      : trustedMapping
-        ? analyzeImpact(trustedMapping, changedFiles)
-        : fullRegressionDecision(changedFiles, mapping);
+  let mapping: CobraMappingIndex | null = null;
+  let deployment: DeploymentBuild = {
+    endpoint: "not-required:module-map",
+    available: false,
+    commitSha: null,
+    sourceMaps: null,
+    warning: "Deployment identity is not required by the reviewed module-map strategy.",
+  };
+  let selection: CobraImpactDecision;
   let specs: string[] = [];
+  let selectedPlaywrightArguments: string[] = [];
+  let selectedTestTags: string[] = [];
+  let matchedModules: string[] = [];
+  let ignoredFiles: string[] = [];
 
-  if (selection.mode === "impacted" && selection.recommendedTests.length > 0 && trustedMapping) {
-    const resolved = selectedSpecFiles(trustedMapping, selection.recommendedTests);
-    warnings.push(...resolved.warnings);
-    specs = resolved.files;
-    if (resolved.warnings.length > 0 || specs.length === 0) {
-      selection = fullRegressionDecision(changedFiles, mapping, "unmapped-change");
-      specs = [];
-      warnings.push("At least one selected test could not be resolved to a stable spec file; running the full suite.");
+  if (strategy === "modules") {
+    warnings.push(
+      "Tests are selected from the reviewed Git module map. The hosted URL is not proven to contain the requested Git head."
+    );
+    let moduleMap: CobraModuleMap | null = null;
+    try {
+      moduleMap = readModuleMap();
+    } catch (error) {
+      warnings.push(`${(error as Error).message} Running the full automation suite.`);
+    }
+
+    if (!moduleMap) {
+      selection =
+        changedFiles.length === 0
+          ? analyzeImpact(null, changedFiles)
+          : fullRegressionDecision(changedFiles, null);
+    } else {
+      const moduleResult = analyzeModuleImpact(moduleMap, changedFiles);
+      selection = moduleResult.decision;
+      matchedModules = moduleResult.matchedModules;
+      ignoredFiles = moduleResult.ignoredFiles;
+      if (selection.mode === "impacted" && selection.recommendedTests.length > 0) {
+        const resolved = modulePlaywrightSelection(moduleResult.selectedTests);
+        warnings.push(...resolved.warnings);
+        if (resolved.warnings.length > 0 || resolved.args.length === 0) {
+          selection = fullModuleRegressionDecision(moduleMap, changedFiles);
+          warnings.push(
+            "At least one configured tag did not resolve to exactly one stable test; running the full suite."
+          );
+        } else {
+          specs = resolved.files;
+          selectedTestTags = resolved.tags;
+          selectedPlaywrightArguments = resolved.args;
+        }
+      }
+    }
+  } else {
+    const mappingResult = readMappingSafely();
+    mapping = mappingResult.mapping;
+    context.mapping = mapping;
+    deployment = await readDeploymentBuild(baseUrl);
+    context.deployment = deployment;
+    if (mappingResult.warning) warnings.push(mappingResult.warning);
+
+    if (changedFiles.length > 0 && (!deployment.available || !deployment.commitSha)) {
+      throw new Error(
+        `Refusing impact execution: hosted deployment identity is unavailable at ${deployment.endpoint}. ` +
+          "Use --strategy modules when deployment integration is unavailable."
+      );
+    }
+    if (changedFiles.length > 0 && !shasPrefixMatch(deployment.commitSha, headSha)) {
+      throw new Error(
+        `Refusing impact execution: hosted deployment ${deployment.commitSha} does not match requested head ${headSha}.`
+      );
+    }
+
+    let trustedMapping = mapping;
+    if (deployment.warning) warnings.push(deployment.warning);
+    if (changedFiles.length > 0) {
+      if (deployment.sourceMaps !== true) {
+        warnings.push("Hosted browser source maps are unavailable or unverified; selective skipping is disabled.");
+        trustedMapping = null;
+      }
+      if (!mapping?.baselineCommitSha || !shasPrefixMatch(mapping.baselineCommitSha, baseSha)) {
+        warnings.push("The promoted baseline does not match the requested base revision; selective skipping is disabled.");
+        trustedMapping = null;
+      }
+      if (mapping?.deploymentVerified !== true) {
+        warnings.push("The promoted baseline was not verified against its deployed revision; selective skipping is disabled.");
+        trustedMapping = null;
+      }
+      if (mapping?.coverageCapability !== "source") {
+        warnings.push("The promoted baseline is not exact source coverage; selective skipping is disabled.");
+        trustedMapping = null;
+      }
+    }
+
+    selection =
+      changedFiles.length === 0
+        ? analyzeImpact(mapping, changedFiles)
+        : trustedMapping
+          ? analyzeImpact(trustedMapping, changedFiles)
+          : fullRegressionDecision(changedFiles, mapping);
+
+    if (selection.mode === "impacted" && selection.recommendedTests.length > 0 && trustedMapping) {
+      const resolved = selectedSpecFiles(trustedMapping, selection.recommendedTests);
+      warnings.push(...resolved.warnings);
+      specs = resolved.files;
+      if (resolved.warnings.length > 0 || specs.length === 0) {
+        selection = fullRegressionDecision(changedFiles, mapping, "unmapped-change");
+        specs = [];
+        warnings.push("At least one selected test could not be resolved to a stable spec file; running the full suite.");
+      } else {
+        selectedPlaywrightArguments = specs;
+      }
     }
   }
 
-  const selectedPlaywrightFiles = selection.mode === "impacted" ? specs : [];
+  context.deployment = deployment;
+  if (selection.mode !== "impacted") {
+    specs = [];
+    selectedTestTags = [];
+    selectedPlaywrightArguments = [];
+  }
   const expectedTestCount =
     selection.mode === "impacted" && selection.recommendedTests.length === 0
       ? 0
-      : discoverAutomationTestCount(selectedPlaywrightFiles);
+      : discoverAutomationTestCount(selectedPlaywrightArguments);
+  const deploymentVerified =
+    strategy === "source" && shasPrefixMatch(deployment.commitSha, headSha);
 
   const build: RunnerBuild = {
     id: buildId,
@@ -951,6 +1110,8 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
     warnings,
     deployment,
     selectedSpecFiles: specs,
+    selectedTestTags,
+    strategy,
   };
 
   const plan = {
@@ -960,7 +1121,11 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
     headSha,
     changedFiles,
     selection,
+    strategy,
+    matchedModules,
+    ignoredFiles,
     selectedSpecFiles: specs,
+    selectedTestTags,
     expectedTestCount,
     warnings,
   };
@@ -980,7 +1145,7 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
       status: "passed",
       commitSha: headSha,
       targetUrl: baseUrl,
-      deploymentVerified: shasPrefixMatch(deployment.commitSha, headSha),
+      deploymentVerified,
     });
     generateCoverageDashboard(buildId);
     console.log(`[cobra] no impacted tests; build recorded at ${buildFile}`);
@@ -1002,14 +1167,18 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
     baseUrl,
     config: "automationTestcase/playwright.config.ts",
     selection,
+    strategy,
+    matchedModules,
+    ignoredFiles,
     selectedSpecFiles: specs,
+    selectedTestTags,
     expectedTestCount,
     deployment,
     warnings,
   });
 
   try {
-    const code = await runPlaywright(selectedPlaywrightFiles, {
+    const code = await runPlaywright(selectedPlaywrightArguments, {
       ...process.env,
       E2E_BASE_URL: baseUrl,
       HOSTED_COVERAGE: "1",
@@ -1018,12 +1187,7 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
       COBRA_RUN_ID: buildId,
       COBRA_COMMIT_SHA: headSha,
       COBRA_EXPECTED_TEST_COUNT: String(expectedTestCount),
-      COBRA_DEPLOYMENT_VERIFIED: shasPrefixMatch(
-        deployment.commitSha,
-        headSha
-      )
-        ? "1"
-        : "0",
+      COBRA_DEPLOYMENT_VERIFIED: deploymentVerified ? "1" : "0",
     });
     build.executedTests = collectRunResults(buildId);
     const completionError = runCompletionError(buildId, expectedTestCount);
@@ -1045,7 +1209,7 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
     status: build.status === "passed" ? "passed" : "failed",
     commitSha: headSha,
     targetUrl: baseUrl,
-    deploymentVerified: shasPrefixMatch(deployment.commitSha, headSha),
+    deploymentVerified,
   });
   generateCoverageDashboard(buildId);
   console.log(`[cobra] impact build recorded at ${buildFile}`);

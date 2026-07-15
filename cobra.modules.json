@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "tests": [
+    {
+      "id": "login",
+      "specFile": "automationTestcase/login.spec.ts",
+      "tag": "@cobra:login"
+    },
+    {
+      "id": "dashboard",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:dashboard"
+    },
+    {
+      "id": "candidates",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:candidates"
+    },
+    {
+      "id": "questions",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:questions"
+    },
+    {
+      "id": "question-banks",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:question-banks"
+    },
+    {
+      "id": "interviews",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:interviews"
+    },
+    {
+      "id": "reports",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:reports"
+    },
+    {
+      "id": "org-settings",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:org-settings"
+    },
+    {
+      "id": "members",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:members"
+    },
+    {
+      "id": "profile",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:profile"
+    }
+  ],
+  "modules": [
+    {
+      "name": "dashboard",
+      "paths": [
+        "apps/web/src/app/(dashboard)/dashboard/**",
+        "apps/web/src/hooks/use-analytics.ts",
+        "apps/api/src/modules/analytics/**"
+      ],
+      "tests": ["login", "dashboard"]
+    },
+    {
+      "name": "candidates-page",
+      "paths": ["apps/web/src/app/(dashboard)/candidates/**"],
+      "tests": ["candidates"]
+    },
+    {
+      "name": "candidates-data",
+      "paths": [
+        "apps/web/src/hooks/use-candidates.ts",
+        "apps/api/src/modules/candidates/**",
+        "packages/shared/src/schemas/candidates.ts"
+      ],
+      "tests": ["candidates", "interviews"]
+    },
+    {
+      "name": "questions-page",
+      "paths": ["apps/web/src/app/(dashboard)/questions/page.tsx"],
+      "tests": ["questions"]
+    },
+    {
+      "name": "question-banks-page",
+      "paths": ["apps/web/src/app/(dashboard)/questions/banks/**"],
+      "tests": ["question-banks"]
+    },
+    {
+      "name": "questions-data",
+      "paths": [
+        "apps/web/src/components/features/questions/**",
+        "apps/web/src/hooks/use-questions.ts",
+        "apps/web/src/hooks/use-question-banks.ts",
+        "apps/api/src/modules/questions/**",
+        "apps/api/src/modules/question-banks/**",
+        "packages/shared/src/schemas/questions.ts",
+        "packages/shared/src/schemas/question-banks.ts",
+        "apps/web/src/pages/api/v1/questions/**",
+        "apps/web/src/pages/api/v1/question-banks/**"
+      ],
+      "tests": ["questions", "question-banks"]
+    },
+    {
+      "name": "interviews",
+      "paths": [
+        "apps/web/src/app/(dashboard)/sessions/**",
+        "apps/web/src/hooks/use-sessions.ts",
+        "apps/api/src/modules/sessions/**",
+        "packages/shared/src/schemas/sessions.ts"
+      ],
+      "tests": ["interviews", "reports"]
+    },
+    {
+      "name": "assessments",
+      "paths": [
+        "apps/web/src/hooks/use-assessments.ts",
+        "apps/web/src/hooks/use-summary.ts",
+        "apps/api/src/modules/assessments/**",
+        "apps/api/src/modules/summaries/**",
+        "packages/shared/src/schemas/assessments.ts"
+      ],
+      "tests": ["interviews"]
+    },
+    {
+      "name": "reports",
+      "paths": [
+        "apps/web/src/app/(dashboard)/reports/**",
+        "apps/web/src/hooks/use-reports.ts",
+        "apps/api/src/modules/reports/**"
+      ],
+      "tests": ["interviews", "reports"]
+    },
+    {
+      "name": "organization-settings",
+      "paths": [
+        "apps/web/src/app/(dashboard)/settings/page.tsx",
+        "apps/web/src/app/(dashboard)/organizations/new/**"
+      ],
+      "tests": ["org-settings"]
+    },
+    {
+      "name": "members",
+      "paths": ["apps/web/src/app/(dashboard)/settings/members/**"],
+      "tests": ["members"]
+    },
+    {
+      "name": "roles",
+      "paths": ["apps/web/src/app/(dashboard)/settings/roles/**"],
+      "tests": ["org-settings", "members"]
+    },
+    {
+      "name": "profile",
+      "paths": ["apps/web/src/app/(dashboard)/profile/**"],
+      "tests": ["profile"]
+    }
+  ],
+  "fullRegressionPaths": [
+    "apps/web/src/app/(auth)/**",
+    "apps/web/src/app/(dashboard)/layout.tsx",
+    "apps/web/src/app/(dashboard)/cobra/**",
+    "apps/web/src/app/layout.tsx",
+    "apps/web/src/app/providers.tsx",
+    "apps/web/src/app/globals.css",
+    "apps/web/src/app/page.tsx",
+    "apps/web/src/components/features/organizations/**",
+    "apps/web/src/hooks/use-cobra.ts",
+    "apps/web/src/hooks/use-organization.ts",
+    "apps/web/src/hooks/use-organizations.ts",
+    "apps/web/src/hooks/use-roles.ts",
+    "apps/web/src/lib/**",
+    "apps/web/src/middleware.ts",
+    "apps/api/src/app.ts",
+    "apps/api/src/server.ts",
+    "apps/api/src/config/**",
+    "apps/api/src/lib/**",
+    "apps/api/src/modules/auth/**",
+    "apps/api/src/modules/cobra/**",
+    "apps/api/src/modules/organizations/**",
+    "apps/api/src/modules/roles/**",
+    "apps/api/src/plugins/**",
+    "apps/api/src/testing/**",
+    "apps/api/prisma/**",
+    "packages/shared/src/index.ts",
+    "packages/shared/src/schemas/auth.ts",
+    "packages/shared/src/schemas/common.ts",
+    "packages/shared/src/schemas/organization.ts",
+    "packages/shared/src/schemas/roles.ts",
+    "packages/shared/src/types/**",
+    "automationTestcase/**",
+    "apps/web/tests/support/cobra/**",
+    "apps/web/tests/cobra-global-setup.ts",
+    "apps/web/tests/cobra-global-teardown.ts",
+    "scripts/**",
+    ".github/**",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    "apps/*/package.json",
+    "apps/*/tsconfig.json",
+    "packages/*/package.json",
+    "packages/*/tsconfig*.json",
+    "apps/web/playwright.config.ts",
+    "apps/web/next.config.mjs",
+    "apps/web/vercel.json",
+    "apps/web/tailwind.config.ts",
+    "apps/web/postcss.config.js"
+  ],
+  "ignoredPaths": [
+    "**/*.md",
+    "**/*.tsbuildinfo",
+    ".cobra/**",
+    "playwright-report/**",
+    "test-results/**"
+  ]
+}

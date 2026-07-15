@@ -84,9 +84,9 @@ corepack pnpm test:automation
 corepack pnpm test:automation:coverage
 ```
 
-The credential-login test reads `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD`
-from `apps/web/.env` and is skipped when they are not set. Its hosted login and
-navigation scenario lives in `automationTestcase/login-navigation.spec.ts`.
+The credential-login tests read `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD`
+from `apps/web/.env` and are skipped when they are not set. The reusable login
+and sidebar scenarios live under `automationTestcase/`.
 
 ## Hosted automation
 
@@ -112,17 +112,18 @@ corepack pnpm cobra:baseline
 corepack pnpm cobra:baseline --dry-run
 ```
 
-Analyze two Git commits and execute either the impacted spec files or the full
-suite when mapping, source-map, or deployment identity is uncertain:
+Analyze two Git commits with the reviewed module map. This mode does not depend
+on Vercel or `/api/cobra-build`:
 
 ```bash
-corepack pnpm cobra:impact --base origin/main --head HEAD
-corepack pnpm cobra:impact --base origin/main --head HEAD --dry-run
+corepack pnpm cobra:impact:modules --base origin/main --head HEAD
+corepack pnpm cobra:impact:modules --base origin/main --head HEAD --dry-run
 ```
 
-Impact mode requires a valid Git repository and verifies that the hosted
-`/api/cobra-build` commit matches `--head`. A mismatch refuses execution; an
-unavailable build identity or source map falls back to full regression.
+`cobra.modules.json` maps application paths to stable Playwright tags. Shared,
+configuration, test-infrastructure, or unknown paths run the full suite. The
+strict source-line strategy remains available through `cobra:impact`; it
+requires a commit-matched hosted deployment and trusted source maps.
 
 Regenerate the static dashboard for the latest run or a named run:
 
@@ -140,10 +141,10 @@ The unified dashboard separates two different metrics:
   the hosted test. It is useful runtime evidence but is never used to match a
   Git source path.
 
-For safe selective execution, deploy this revision with
+For source-line selective execution, deploy this revision with
 `COBRA_SOURCE_MAPS=1` and the `/api/cobra-build` endpoint, then run the baseline
-against that exact deployment. Without either signal COBRA automatically runs
-the full configured suite.
+against that exact deployment. The module strategy remains available without
+those signals and falls back to all tests for every unreviewed path.
 
 The authenticated `/cobra/analyze` and token-guarded Git webhook endpoints are
 planning APIs only. Verified test execution is intentionally limited to
