@@ -9,12 +9,15 @@ export async function GET() {
     process.env.VERCEL_GIT_COMMIT_SHA ??
     process.env.COBRA_COMMIT_SHA ??
     process.env.GIT_COMMIT_SHA ??
+    process.env.COBRA_BUILD_COMMIT_SHA ??
     null;
 
   return NextResponse.json(
     {
       commitSha,
-      sourceMaps: process.env.COBRA_SOURCE_MAPS === "1",
+      sourceMaps:
+        process.env.COBRA_SOURCE_MAPS === "1" ||
+        process.env.COBRA_BUILD_SOURCE_MAPS === "1",
     },
     {
       headers: {
