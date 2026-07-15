@@ -1,17 +1,26 @@
 import { execFileSync } from "node:child_process";
 
 function resolveBuildCommit() {
-  const configured =
-    process.env.VERCEL_GIT_COMMIT_SHA ??
-    process.env.CF_PAGES_COMMIT_SHA ??
-    process.env.GITHUB_SHA ??
-    process.env.RAILWAY_GIT_COMMIT_SHA ??
-    process.env.RENDER_GIT_COMMIT ??
-    process.env.SOURCE_VERSION ??
-    process.env.COBRA_COMMIT_SHA ??
-    process.env.GIT_COMMIT_SHA;
+  const configured = [
+    process.env.VERCEL_GIT_COMMIT_SHA,
+    process.env.CF_PAGES_COMMIT_SHA,
+    process.env.GITHUB_SHA,
+    process.env.RAILWAY_GIT_COMMIT_SHA,
+    process.env.RENDER_GIT_COMMIT,
+    process.env.SOURCE_VERSION,
+    process.env.COBRA_COMMIT_SHA,
+    process.env.GIT_COMMIT_SHA,
+  ]
+    .map((value) => value?.trim())
+    .find(Boolean);
   if (configured) return configured;
   try {
+    const changes = execFileSync("git", ["status", "--porcelain"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (changes) return "";
+
     return execFileSync("git", ["rev-parse", "HEAD"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],

@@ -5,19 +5,22 @@ import { NextResponse } from "next/server";
  * decision is tested against the same revision that produced the Git diff.
  */
 export async function GET() {
+  const embeddedCommitSha = process.env.COBRA_BUILD_COMMIT_SHA;
+  const embeddedSourceMaps = process.env.COBRA_BUILD_SOURCE_MAPS;
   const commitSha =
-    process.env.VERCEL_GIT_COMMIT_SHA ??
-    process.env.COBRA_COMMIT_SHA ??
-    process.env.GIT_COMMIT_SHA ??
-    process.env.COBRA_BUILD_COMMIT_SHA ??
+    embeddedCommitSha ||
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.COBRA_COMMIT_SHA ||
+    process.env.GIT_COMMIT_SHA ||
     null;
 
   return NextResponse.json(
     {
       commitSha,
       sourceMaps:
-        process.env.COBRA_SOURCE_MAPS === "1" ||
-        process.env.COBRA_BUILD_SOURCE_MAPS === "1",
+        embeddedSourceMaps === "1" ||
+        (embeddedSourceMaps === undefined &&
+          process.env.COBRA_SOURCE_MAPS === "1"),
     },
     {
       headers: {
