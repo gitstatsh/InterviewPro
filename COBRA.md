@@ -47,6 +47,46 @@ The dashboard separately inventories every TS/TSX/JS/JSX application file.
 Never-loaded or unmapped files remain visible at 0%. Hosted chunk coverage is
 shown separately and is not treated as repository-source evidence.
 
+### Build-only local source-map fallback
+
+When the hosted Next.js deployment does not publish browser source maps, COBRA
+can try source maps from an equivalent local production build. This command
+only builds the web application and writes artifacts under `apps/web/.next`;
+it does not start or host a local application server:
+
+```bash
+corepack pnpm cobra:source-maps
+```
+
+Then point the hosted baseline run at the generated static artifacts. In
+PowerShell:
+
+```powershell
+$env:COBRA_LOCAL_SOURCE_MAP_DIR = "apps/web/.next/static"
+corepack pnpm cobra:baseline --base-url "https://app.techinterview.co.in"
+Remove-Item Env:COBRA_LOCAL_SOURCE_MAP_DIR
+```
+
+In Bash:
+
+```bash
+COBRA_LOCAL_SOURCE_MAP_DIR=apps/web/.next/static \
+  corepack pnpm cobra:baseline --base-url "https://app.techinterview.co.in"
+```
+
+This fallback is deliberately strict. A local map is used only when its built
+JavaScript exactly matches the hosted browser chunk after removing only a final
+`sourceMappingURL` line. It reports browser/client source-line **touch
+coverage** for those matched chunks only; it is not statement, branch, API, or
+server coverage. Chunks without an exact match remain generated-only coverage
+and are never presented as repository source lines.
+
+Local chunk matching also does not verify which commit is deployed. A baseline
+created this way remains deployment-unverified unless `/api/cobra-build`
+independently confirms the hosted commit. It therefore cannot authorize
+selective test skipping; COBRA continues to use the full-regression safety
+fallback when deployment identity is unavailable.
+
 ## Running the engine
 
 Run a Git change locally or in CI:
@@ -56,10 +96,10 @@ corepack pnpm cobra:impact --base origin/main --head HEAD
 corepack pnpm cobra:dashboard
 ```
 
-Impact mode requires a real Git repository. This downloaded workspace
-currently contains an empty `.git` directory, so connect/clone the actual
-repository before using `cobra:impact`. The pure Git adapter is covered by
-temporary-repository tests.
+Impact mode requires real Git history. The public application repository is
+`https://github.com/gitstatsh/InterviewPro.git`; clone it normally or keep this
+workspace's `origin` attached to that repository before using `cobra:impact`.
+The pure Git adapter is also covered by temporary-repository tests.
 
 API and webhook intake are analysis-only and create `planned` build records.
 They cannot launch tests because an API payload does not prove that the worker

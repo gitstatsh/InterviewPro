@@ -8,6 +8,12 @@ import type {
   PerTestCoverage,
   RunIndex,
 } from "@interview/shared";
+import {
+  hasUsableCobraRepositorySourceLines,
+  isCompleteHostedBrowserSourceMaps,
+  isCobraRepositorySourcePath,
+  isTrustedCobraMapping,
+} from "@interview/shared";
 import { env } from "../../config/env.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -72,8 +78,8 @@ export function readMapping(): CobraMappingIndex | null {
 
 export function readTrustedMapping(): CobraMappingIndex | null {
   try {
-    const mapping = readJson<CobraMappingIndex>(TRUSTED_MAPPING_FILE);
-    return mapping && Array.isArray(mapping.tests) ? mapping : null;
+    const mapping = readJson<unknown>(TRUSTED_MAPPING_FILE);
+    return isTrustedCobraMapping(mapping) ? mapping : null;
   } catch {
     return null;
   }
@@ -203,6 +209,7 @@ export function refreshMappingFromRun(requestedRunId?: string): CobraMappingInde
       status: entry.status,
       files: coverageDocument.files,
       externalDeps: coverageDocument.externalDeps,
+      browserSourceMaps: coverageDocument.browserSourceMaps,
     });
   }
   if (tests.length !== index.expectedTestCount) {
@@ -214,9 +221,13 @@ export function refreshMappingFromRun(requestedRunId?: string): CobraMappingInde
 
   const now = new Date().toISOString();
   const paths = tests.flatMap((test) => test.files.map((file) => file.path));
-  const sourceCount = paths.filter((file) =>
-    /^(apps|packages)\/[^/]+\/src\//.test(file.replace(/\\/g, "/"))
-  ).length;
+  const sourceCount = paths.filter(isCobraRepositorySourcePath).length;
+  const hasCompleteHostedSourceCoverage = tests.every(
+    (test) =>
+      test.status === "passed" &&
+      hasUsableCobraRepositorySourceLines(test) &&
+      isCompleteHostedBrowserSourceMaps(test.browserSourceMaps)
+  );
   const mapping: CobraMappingIndex = {
     version: 1,
     baselineRunId: runId,
@@ -225,7 +236,7 @@ export function refreshMappingFromRun(requestedRunId?: string): CobraMappingInde
     coverageCapability:
       sourceCount === 0
         ? "generated-only"
-        : sourceCount === paths.length
+        : hasCompleteHostedSourceCoverage
           ? "source"
           : "mixed",
     createdAt: now,
@@ -234,10 +245,7 @@ export function refreshMappingFromRun(requestedRunId?: string): CobraMappingInde
   };
   writeJson(path.join(MAPPINGS_DIR, `${safeId(runId)}.json`), mapping);
   writeMapping(mapping);
-  if (
-    mapping.deploymentVerified === true &&
-    mapping.coverageCapability === "source"
-  ) {
+  if (isTrustedCobraMapping(mapping)) {
     writeJson(TRUSTED_MAPPING_FILE, mapping);
   }
   return mapping;

@@ -34,6 +34,7 @@ jobs:
     environment: cobra-staging
     env:
       E2E_BASE_URL: ${{ inputs.application_url || secrets.COBRA_E2E_BASE_URL }}
+      E2E_HEADED: "false"
       BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_ref }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_ref || github.sha }}
 
@@ -77,6 +78,46 @@ jobs:
           test -n "$E2E_BASE_URL" || (echo "COBRA_E2E_BASE_URL/application_url is required" && exit 1)
           test -n "$E2E_LOGIN_EMAIL" || (echo "COBRA_E2E_LOGIN_EMAIL is required" && exit 1)
           test -n "$E2E_LOGIN_PASSWORD" || (echo "COBRA_E2E_LOGIN_PASSWORD is required" && exit 1)
+
+      - name: Wait for commit-matched source-map deployment
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline') }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const endpoint = new URL("/api/cobra-build", process.env.E2E_BASE_URL);
+          const expected = process.env.HEAD_SHA.trim().toLowerCase();
+          const deadline = Date.now() + 10 * 60 * 1000;
+
+          while (Date.now() < deadline) {
+            try {
+              const response = await fetch(endpoint, {
+                cache: "no-store",
+                headers: { "cache-control": "no-cache" },
+              });
+              if (response.ok) {
+                const build = await response.json();
+                const actual = String(build.commitSha ?? "").trim().toLowerCase();
+                const commitMatches =
+                  actual.length >= 7 &&
+                  (actual.startsWith(expected) || expected.startsWith(actual));
+                if (commitMatches && build.sourceMaps === true) {
+                  console.log(`Deployment ready: ${actual}`);
+                  process.exit(0);
+                }
+                console.log(
+                  `Waiting for ${expected}: commit=${actual || "missing"}, sourceMaps=${build.sourceMaps === true}`,
+                );
+              } else {
+                console.log(`Waiting for deployment metadata: HTTP ${response.status}`);
+              }
+            } catch (error) {
+              console.log(`Waiting for deployment: ${error instanceof Error ? error.message : error}`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 15_000));
+          }
+
+          throw new Error(`Timed out waiting for ${expected} at ${endpoint}`);
+          NODE
 
       - name: Publish commit-matched baseline
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline') }}

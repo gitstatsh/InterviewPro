@@ -72,6 +72,12 @@ describe("COBRA baseline publication", () => {
         },
       ],
       externalDeps: [],
+      browserSourceMaps: {
+        totalScripts: 1,
+        resolvedHostedMaps: 1,
+        resolvedLocalExactMaps: 0,
+        unresolvedMaps: 0,
+      },
     };
     persistence.writePerTest("complete-run", document, "passed");
 
@@ -84,6 +90,191 @@ describe("COBRA baseline publication", () => {
     expect(mapping.baselineCommitSha).toBe("abc123");
     expect(mapping.coverageCapability).toBe("source");
     expect(mapping.tests[0].stableTestId).toBe("stable-navigation-id");
+  });
+
+  it("keeps complete local-exact browser maps mixed and untrusted", () => {
+    persistence.initRun("partial-source-run", "baseline", {
+      commitSha: "partial123",
+      deploymentVerified: true,
+      expectedTestCount: 1,
+    });
+    const document: PerTestCoverage = {
+      testId: "navigation.spec.ts > partial source maps",
+      stableTestId: "stable-partial-source-id",
+      runId: "partial-source-run",
+      specFile: "automationTestcase/navigation.spec.ts",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      durationMs: 10,
+      files: [
+        {
+          path: "apps/web/src/app/candidates/page.tsx",
+          functionsTouched: ["CandidatesPage"],
+          linesTouched: [10],
+        },
+      ],
+      externalDeps: [],
+      browserChunks: [
+        {
+          url: "https://app.example/_next/static/chunks/candidates.js",
+          script: "/_next/static/chunks/candidates.js",
+          totalBytes: 100,
+          coveredBytes: 50,
+          coveragePercent: 50,
+          coveredRanges: [[0, 50]],
+        },
+      ],
+      browserSourceMaps: {
+        totalScripts: 1,
+        resolvedHostedMaps: 0,
+        resolvedLocalExactMaps: 1,
+        unresolvedMaps: 0,
+      },
+    };
+    persistence.writePerTest("partial-source-run", document, "passed");
+    persistence.finalizeRun("partial-source-run");
+
+    const latest = JSON.parse(
+      fs.readFileSync(path.join(storage, "mappings", "latest.json"), "utf8")
+    ) as CobraMappingIndex;
+    const trusted = JSON.parse(
+      fs.readFileSync(path.join(storage, "mappings", "trusted.json"), "utf8")
+    ) as CobraMappingIndex;
+    expect(latest.coverageCapability).toBe("mixed");
+    expect(latest.tests[0].browserSourceMaps?.resolvedLocalExactMaps).toBe(1);
+    expect(trusted.baselineRunId).toBe("complete-run");
+  });
+
+  it("keeps a baseline mixed when any passing test has no repository source lines", () => {
+    persistence.initRun("partly-unmapped-run", "baseline", {
+      commitSha: "partly-unmapped",
+      deploymentVerified: true,
+      expectedTestCount: 2,
+    });
+    const common = {
+      runId: "partly-unmapped-run",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      durationMs: 1,
+      externalDeps: [],
+      browserSourceMaps: {
+        totalScripts: 1,
+        resolvedHostedMaps: 1,
+        resolvedLocalExactMaps: 0,
+        unresolvedMaps: 0,
+      },
+    } satisfies Partial<PerTestCoverage>;
+    persistence.writePerTest(
+      "partly-unmapped-run",
+      {
+        ...common,
+        testId: "mapped test",
+        stableTestId: "mapped-test",
+        files: [
+          {
+            path: "apps/web/src/app/candidates/page.tsx",
+            functionsTouched: [],
+            linesTouched: [10],
+          },
+        ],
+      } as PerTestCoverage,
+      "passed"
+    );
+    persistence.writePerTest(
+      "partly-unmapped-run",
+      {
+        ...common,
+        testId: "unmapped test",
+        stableTestId: "unmapped-test",
+        files: [],
+      } as PerTestCoverage,
+      "passed"
+    );
+
+    persistence.finalizeRun("partly-unmapped-run");
+
+    const latest = JSON.parse(
+      fs.readFileSync(path.join(storage, "mappings", "latest.json"), "utf8")
+    ) as CobraMappingIndex;
+    const trusted = JSON.parse(
+      fs.readFileSync(path.join(storage, "mappings", "trusted.json"), "utf8")
+    ) as CobraMappingIndex;
+    expect(latest.coverageCapability).toBe("mixed");
+    expect(trusted.baselineRunId).toBe("complete-run");
+  });
+
+  it("treats missing, zero, and inconsistent browser diagnostics as mixed", () => {
+    const cases: Array<{
+      runId: string;
+      diagnostics?: PerTestCoverage["browserSourceMaps"];
+    }> = [
+      {
+        runId: "missing-browser-diagnostics",
+      },
+      {
+        runId: "zero-browser-diagnostics",
+        diagnostics: {
+          totalScripts: 0,
+          resolvedHostedMaps: 0,
+          resolvedLocalExactMaps: 0,
+          unresolvedMaps: 0,
+        },
+      },
+      {
+        runId: "invalid-browser-diagnostics",
+        diagnostics: {
+          totalScripts: 1,
+          resolvedHostedMaps: 1,
+          resolvedLocalExactMaps: 0,
+          unresolvedMaps: 1,
+        },
+      },
+    ];
+
+    for (const item of cases) {
+      persistence.initRun(item.runId, "baseline", {
+        commitSha: item.runId,
+        deploymentVerified: true,
+        expectedTestCount: 1,
+      });
+      const document: PerTestCoverage = {
+        testId: `navigation.spec.ts > ${item.runId}`,
+        stableTestId: `stable-${item.runId}`,
+        runId: item.runId,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        durationMs: 1,
+        files: [
+          {
+            path: "apps/web/src/app/candidates/page.tsx",
+            functionsTouched: [],
+            linesTouched: [1],
+          },
+        ],
+        externalDeps: [],
+        browserChunks: [
+          {
+            url: "https://app.example/_next/static/chunks/candidates.js",
+            script: "/_next/static/chunks/candidates.js",
+            totalBytes: 10,
+            coveredBytes: 10,
+            coveragePercent: 100,
+            coveredRanges: [[0, 10]],
+          },
+        ],
+        ...(item.diagnostics
+          ? { browserSourceMaps: item.diagnostics }
+          : {}),
+      };
+      persistence.writePerTest(item.runId, document, "passed");
+      persistence.finalizeRun(item.runId);
+      const mapping = JSON.parse(
+        fs.readFileSync(path.join(storage, "mappings", "latest.json"), "utf8")
+      ) as CobraMappingIndex;
+      expect(mapping.coverageCapability, item.runId).toBe("mixed");
+    }
+
+    const trusted = JSON.parse(
+      fs.readFileSync(path.join(storage, "mappings", "trusted.json"), "utf8")
+    ) as CobraMappingIndex;
+    expect(trusted.baselineRunId).toBe("complete-run");
   });
 
   it("keeps the last trusted mapping when a diagnostic baseline is unverified", () => {

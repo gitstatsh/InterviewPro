@@ -96,9 +96,10 @@ test:hosted` for functional validation. Run `corepack pnpm test:coverage` to
 capture per-test browser JavaScript coverage and generate the standalone
 dashboard at `.cobra/dashboard/index.html`.
 
-The hosted dashboard reports generated browser-script coverage because the
-public application does not expose server-side V8 coverage or production
-source maps. It requires no local web, API, database, or Redis service.
+Until the hosted revision exposes commit-matched production source maps, the
+dashboard reports generated browser-script coverage. Once those maps are
+available, it also reports trusted source-line coverage. It requires no local
+web, API, database, or Redis service.
 
 ### Safety-first COBRA runner
 

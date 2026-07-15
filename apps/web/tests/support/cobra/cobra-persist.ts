@@ -1,6 +1,12 @@
 /** File-backed COBRA run storage with transactional baseline publication. */
 import fs from "node:fs";
 import path from "node:path";
+import {
+  hasUsableCobraRepositorySourceLines,
+  isCompleteHostedBrowserSourceMaps,
+  isCobraRepositorySourcePath,
+  isTrustedCobraMapping,
+} from "@interview/shared";
 import type {
   CobraMappingIndex,
   CobraMappingTest,
@@ -166,15 +172,21 @@ function promoteBaseline(index: RunIndex): void {
     status,
     files: document.files,
     externalDeps: document.externalDeps,
+    browserSourceMaps: document.browserSourceMaps,
   }));
 
   const paths = tests.flatMap((test) => test.files.map((file) => file.path));
-  const sourceCount = paths.filter(isRepositorySourcePath).length;
-  const generatedCount = paths.length - sourceCount;
+  const sourceCount = paths.filter(isCobraRepositorySourcePath).length;
+  const hasCompleteHostedSourceCoverage = tests.every(
+    (test) =>
+      test.status === "passed" &&
+      hasUsableCobraRepositorySourceLines(test) &&
+      isCompleteHostedBrowserSourceMaps(test.browserSourceMaps)
+  );
   const coverageCapability: CobraMappingIndex["coverageCapability"] =
     sourceCount === 0
       ? "generated-only"
-      : generatedCount === 0
+      : hasCompleteHostedSourceCoverage
         ? "source"
         : "mixed";
 
@@ -193,17 +205,9 @@ function promoteBaseline(index: RunIndex): void {
   // when identity and complete repository-source coverage are trustworthy.
   writeJsonAtomic(path.join(MAPPINGS_DIR, `${safeSegment(index.runId)}.json`), mapping);
   writeJsonAtomic(MAPPING_FILE, mapping);
-  if (mapping.deploymentVerified === true && coverageCapability === "source") {
+  if (isTrustedCobraMapping(mapping)) {
     writeJsonAtomic(TRUSTED_MAPPING_FILE, mapping);
   }
-}
-
-function isRepositorySourcePath(value: string): boolean {
-  const normalized = value.replace(/\\/g, "/");
-  return (
-    !/^https?:\/\//i.test(normalized) &&
-    /^(apps|packages)\/[^/]+\/src\//.test(normalized)
-  );
 }
 
 export function writePerTest(
@@ -247,6 +251,7 @@ export function writePerTest(
       (sum, chunk) => sum + chunk.totalBytes,
       0
     ),
+    browserSourceMaps: document.browserSourceMaps,
     status,
   };
   const existing = index.tests.findIndex((test) =>

@@ -9,7 +9,7 @@ import {
   summarizeBrowserCoverage,
 } from "./cobra-browser-coverage.js";
 import {
-  convertBrowserCoverage,
+  convertBrowserCoverageWithDiagnostics,
   convertServerCoverage,
   mergeFileCoverage,
 } from "./cobra-convert.js";
@@ -71,7 +71,9 @@ export const test = base.extend<CobraFixtures>({
           ? await stopBrowserCoverage(page)
           : [];
         const browserChunks = summarizeBrowserCoverage(browserEntries);
-        const browserFiles = await convertBrowserCoverage(browserEntries);
+        const browserCoverage = await convertBrowserCoverageWithDiagnostics(
+          browserEntries
+        );
 
         let serverFiles: FileCoverage[] = [];
         let externalDeps: ExternalDep[] = [];
@@ -101,9 +103,10 @@ export const test = base.extend<CobraFixtures>({
           specFile: pathFromRepo(testInfo.file),
           startedAt: startedAtIso,
           durationMs: Date.now() - startedAt.getTime(),
-          files: mergeFileCoverage(serverFiles, browserFiles),
+          files: mergeFileCoverage(serverFiles, browserCoverage.files),
           externalDeps: dedupeExternalDeps(externalDeps),
           browserChunks,
+          browserSourceMaps: browserCoverage.sourceMaps,
         };
 
         const status = (testInfo.status ?? "passed") as

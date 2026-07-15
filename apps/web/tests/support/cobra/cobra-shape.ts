@@ -1,6 +1,7 @@
 /** Shared persisted COBRA contracts used by Playwright, the API, and UI. */
 export type {
   BrowserChunkCoverage,
+  BrowserSourceMapDiagnostics,
   CobraMappingIndex,
   CobraMappingTest,
   CobraTestStatus,

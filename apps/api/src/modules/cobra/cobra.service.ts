@@ -4,6 +4,7 @@ import type {
   CobraChangedFile,
   CobraDashboard,
 } from "@interview/shared";
+import { isTrustedCobraMapping } from "@interview/shared";
 import { env } from "../../config/env.js";
 import { analyzeImpact } from "./cobra-impact.js";
 import {
@@ -38,8 +39,7 @@ export function createBuild(input: CreateBuildInput): CobraBuild {
   try {
     const candidate = readTrustedMapping();
     if (
-      candidate?.deploymentVerified === true &&
-      candidate.coverageCapability === "source" &&
+      isTrustedCobraMapping(candidate) &&
       shasMatch(candidate.baselineCommitSha, input.baseSha)
     ) {
       mapping = candidate;
@@ -84,10 +84,9 @@ export function getDashboard(): CobraDashboard {
     enabled: env.COBRA_ENABLED === "1" || env.TEST_MODE === "1",
     mapping: {
       ready: Boolean(
-        mapping?.tests.length &&
+        isTrustedCobraMapping(mapping) &&
           sourceFiles.size > 0 &&
-          mapping.deploymentVerified === true &&
-          mapping.coverageCapability === "source"
+          mapping.tests.length > 0
       ),
       baselineRunId: mapping?.baselineRunId,
       baselineCommitSha: mapping?.baselineCommitSha,

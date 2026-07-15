@@ -17,6 +17,7 @@
     "test:automation": "corepack pnpm --dir apps/web exec playwright test --config ../../automationTestcase/playwright.config.ts",
     "test:automation:typecheck": "corepack pnpm --dir apps/web exec tsc -p ../../automationTestcase/tsconfig.json --noEmit",
     "test:automation:coverage": "cross-env HOSTED_COVERAGE=1 corepack pnpm --dir apps/web exec playwright test --config ../../automationTestcase/playwright.config.ts",
+    "cobra:source-maps": "cross-env COBRA_SOURCE_MAPS=1 corepack pnpm --filter web build",
     "cobra:baseline": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts baseline",
     "cobra:impact": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts impact",
     "cobra:dashboard": "node apps/api/node_modules/tsx/dist/cli.mjs scripts/cobra-runner.ts dashboard"

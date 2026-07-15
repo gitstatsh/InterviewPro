@@ -39,7 +39,8 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   TraceMap,
   eachMapping,
@@ -47,7 +48,10 @@ import {
 } from "@jridgewell/trace-mapping";
 import type { CoveredScript } from "./cobra-client.js";
 import type { BrowserCoverageEntry } from "./cobra-browser-coverage.js";
-import type { FileCoverage } from "./cobra-shape.js";
+import type {
+  BrowserSourceMapDiagnostics,
+  FileCoverage,
+} from "./cobra-shape.js";
 
 /** Repo root — five segments up from apps/web/tests/support/cobra. */
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..", "..");
@@ -87,13 +91,30 @@ function normalizeMapSources(map: any): any {
   return { ...map, sources };
 }
 
+type TrailingSourceMapDirective = {
+  reference: string;
+  startOffset: number;
+};
+
+/** Parses one line-comment sourceMappingURL directive at strict EOF. */
+function trailingSourceMapDirective(
+  source: string
+): TrailingSourceMapDirective | undefined {
+  const match = /(?:\r?\n)?\/\/[#@][ \t]*sourceMappingURL=([^\r\n]+?)[ \t]*(?:\r?\n)?$/.exec(
+    source
+  );
+  const reference = match?.[1]?.trim();
+  if (!match || !reference) return undefined;
+  return { reference, startOffset: match.index };
+}
+
 function extractSourceMap(
   source: string,
   fileUrl: string
 ): { url: string; map: any } | undefined {
-  const match = source.match(/\/\/# sourceMappingURL=(.+)\s*$/m);
-  if (!match) return undefined;
-  const ref = match[1].trim();
+  const directive = trailingSourceMapDirective(source);
+  if (!directive) return undefined;
+  const ref = directive.reference;
 
   if (ref.startsWith("data:")) {
     const commaIdx = ref.indexOf(",");
@@ -142,9 +163,9 @@ async function fetchBrowserSourceMap(
   jsUrl: string,
   source: string
 ): Promise<{ url: string; map: any } | undefined> {
-  const match = source.match(/\/\/# sourceMappingURL=(.+)\s*$/m);
-  if (!match) return undefined;
-  const ref = match[1].trim();
+  const directive = trailingSourceMapDirective(source);
+  if (!directive) return undefined;
+  const ref = directive.reference;
   if (ref.startsWith("data:")) {
     return extractSourceMap(source, jsUrl);
   }
@@ -168,9 +189,14 @@ async function fetchBrowserSourceMap(
     const res = await fetch(mapUrl, {
       cache: "no-store",
       headers: { "cache-control": "no-cache" },
+      redirect: "error",
       signal: controller.signal,
     });
     if (!res.ok) return undefined;
+    if (res.url) {
+      const finalUrl = new URL(res.url);
+      if (finalUrl.origin !== new URL(jsUrl).origin) return undefined;
+    }
     return { url: mapUrl.toString(), map: normalizeMapSources(await res.json()) };
   } catch {
     return undefined;
@@ -179,69 +205,300 @@ async function fetchBrowserSourceMap(
   }
 }
 
+type LocalSourceMapCandidate = Readonly<{
+  canonicalSource: string;
+  mapUrl: string;
+  rawMap: string;
+  map: Readonly<Record<string, unknown>>;
+  resolvedSources: string;
+}>;
+
+type LocalSourceMapIndex = Map<
+  string,
+  ReadonlyArray<LocalSourceMapCandidate>
+>;
+
+const localSourceMapIndexes = new Map<string, LocalSourceMapIndex>();
+
+/**
+ * Removes only a final sourceMappingURL line (and the newline which introduces
+ * that line). No other whitespace or generated code is normalized: a local
+ * source map is eligible only when the remaining JavaScript is exact.
+ */
+function canonicalGeneratedSource(source: string): string {
+  const directive = trailingSourceMapDirective(source);
+  return directive ? source.slice(0, directive.startOffset) : source;
+}
+
+function sourceDigest(source: string): string {
+  return createHash("sha256").update(source, "utf8").digest("hex");
+}
+
+function isWithinDirectory(directory: string, candidate: string): boolean {
+  const relative = path.relative(directory, candidate);
+  return (
+    relative !== "" &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function referencedLocalMap(
+  directory: string,
+  scriptPath: string,
+  reference: string
+): string | undefined {
+  try {
+    const mapUrl = new URL(reference, pathToFileURL(scriptPath));
+    if (mapUrl.protocol !== "file:" || mapUrl.search || mapUrl.hash) {
+      return undefined;
+    }
+    const mapPath = fs.realpathSync(fileURLToPath(mapUrl));
+    if (!isWithinDirectory(directory, mapPath)) return undefined;
+    return fs.statSync(mapPath).isFile() ? mapPath : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildLocalSourceMapIndex(directory: string): LocalSourceMapIndex {
+  const index: LocalSourceMapIndex = new Map();
+
+  const visit = (current: string): void => {
+    const entries = fs
+      .readdirSync(current, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        visit(fullPath);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".js")) continue;
+
+      try {
+        const generatedSource = fs.readFileSync(fullPath, "utf8");
+        const directive = trailingSourceMapDirective(generatedSource);
+        if (!directive) continue;
+        const mapPath = referencedLocalMap(
+          directory,
+          fullPath,
+          directive.reference
+        );
+        if (!mapPath) continue;
+
+        const rawMap = fs.readFileSync(mapPath, "utf8");
+        const parsed: unknown = JSON.parse(rawMap);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          continue;
+        }
+        const mapUrl = pathToFileURL(mapPath).toString();
+        const map = Object.freeze(
+          normalizeMapSources(parsed) as Record<string, unknown>
+        );
+        const resolvedSources = JSON.stringify(
+          new TraceMap(map as any, mapUrl).resolvedSources
+        );
+        const canonicalSource = generatedSource.slice(
+          0,
+          directive.startOffset
+        );
+        const candidate = Object.freeze({
+          canonicalSource,
+          mapUrl,
+          rawMap,
+          map,
+          resolvedSources,
+        });
+        const digest = sourceDigest(canonicalSource);
+        const candidates = [...(index.get(digest) ?? []), candidate];
+        index.set(digest, Object.freeze(candidates));
+      } catch {
+        // A malformed or stale local pair is not a source-map candidate.
+        continue;
+      }
+    }
+  };
+
+  visit(directory);
+  return index;
+}
+
+function configuredLocalSourceMapIndex(): LocalSourceMapIndex | undefined {
+  const configured = process.env.COBRA_LOCAL_SOURCE_MAP_DIR?.trim();
+  if (!configured) return undefined;
+
+  try {
+    const configuredPath = path.isAbsolute(configured)
+      ? configured
+      : path.resolve(REPO_ROOT, configured);
+    const directory = fs.realpathSync(configuredPath);
+    if (!fs.statSync(directory).isDirectory()) return undefined;
+    const cached = localSourceMapIndexes.get(directory);
+    if (cached) return cached;
+    const index = buildLocalSourceMapIndex(directory);
+    localSourceMapIndexes.set(directory, index);
+    return index;
+  } catch {
+    // Missing/unreadable build artifacts are an unavailable fallback, not a
+    // reason to weaken capture or accept a filename-only match.
+    return undefined;
+  }
+}
+
+/**
+ * Resolves a source map from an explicitly configured local production build.
+ * The digest is only an index: exact canonical JavaScript equality is checked
+ * before a cached map is used. Multiple exact scripts with different maps are
+ * deliberately rejected as ambiguous.
+ */
+function localExactBrowserSourceMap(
+  source: string
+): { url: string; map: any } | undefined {
+  const index = configuredLocalSourceMapIndex();
+  if (!index) return undefined;
+
+  const canonicalSource = canonicalGeneratedSource(source);
+  const candidates = (index.get(sourceDigest(canonicalSource)) ?? []).filter(
+    (candidate) => candidate.canonicalSource === canonicalSource
+  );
+  if (candidates.length === 0) return undefined;
+
+  let selected: LocalSourceMapCandidate | undefined;
+  for (const candidate of candidates) {
+    if (
+      selected &&
+      (selected.rawMap !== candidate.rawMap ||
+        selected.resolvedSources !== candidate.resolvedSources)
+    ) {
+      return undefined;
+    }
+    selected = selected ?? candidate;
+  }
+
+  return selected ? { url: selected.mapUrl, map: selected.map } : undefined;
+}
+
+function isBrowserJavaScript(url: string): boolean {
+  try {
+    return new URL(url).pathname.endsWith(".js");
+  } catch {
+    return false;
+  }
+}
+
+function isExistingRepositorySourcePath(value: string): boolean {
+  const normalized = value.replace(/\\/g, "/");
+  if (!/^(apps|packages)\/[^/]+\/src\//.test(normalized)) return false;
+  const segments = normalized.split("/");
+  if (segments.some((segment) =>
+    segment.length === 0 || segment === "." || segment === ".."
+  )) {
+    return false;
+  }
+
+  const absolute = path.resolve(REPO_ROOT, ...segments);
+  const relative = path.relative(REPO_ROOT, absolute);
+  if (
+    relative.startsWith("..") ||
+    path.isAbsolute(relative)
+  ) {
+    return false;
+  }
+
+  try {
+    const realPath = fs.realpathSync(absolute);
+    const realRelative = path.relative(REPO_ROOT, realPath);
+    return (
+      !realRelative.startsWith("..") &&
+      !path.isAbsolute(realRelative) &&
+      fs.statSync(realPath).isFile()
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // V8 range arithmetic — turn (function ranges) into (executed byte intervals)
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * V8 block coverage semantics: fn.ranges[0] is the function's outer
- * extent; subsequent entries are nested sub-ranges. A nested range with
- * count=0 marks a block that DID NOT run (e.g. the body of an if that
- * evaluated false). A nested range with count>0 is redundant with the
- * outer coverage for our purposes.
+ * V8 reports ranges independently for the script, its nested functions, and
+ * block-coverage branches. Unioning positive ranges is incorrect: the
+ * positive script range would cover a nested function whose own outer range
+ * has count=0.
+ *
+ * V8 ranges are properly nested or disjoint. Sweep their boundaries while
+ * keeping that nesting on a stack; its top is the most-specific active range.
+ * Equal ranges conservatively put count=0 on top. Malformed/crossing ranges
+ * fail closed instead of manufacturing executed lines.
  */
-function executedIntervalsForFunction(fn: V8Function): Array<[number, number]> {
-  if (fn.ranges.length === 0) return [];
-  const outer = fn.ranges[0];
-  if (outer.count === 0) return [];
-
-  let intervals: Array<[number, number]> = [[outer.startOffset, outer.endOffset]];
-  for (let i = 1; i < fn.ranges.length; i++) {
-    const r = fn.ranges[i];
-    if (r.count > 0) continue;
-    intervals = subtractInterval(intervals, r.startOffset, r.endOffset);
-  }
-  return intervals;
-}
-
-function subtractInterval(
-  intervals: Array<[number, number]>,
-  a: number,
-  b: number
+function computeExecutedIntervals(
+  functions: V8Function[],
+  sourceLength: number
 ): Array<[number, number]> {
-  const out: Array<[number, number]> = [];
-  for (const [s, e] of intervals) {
-    if (b <= s || a >= e) {
-      out.push([s, e]);
-      continue;
-    }
-    if (s < a) out.push([s, a]);
-    if (b < e) out.push([b, e]);
-  }
-  return out;
-}
+  const starts = new Map<number, V8Range[]>();
+  const boundaries = new Set<number>();
 
-function mergeIntervals(
-  intervals: Array<[number, number]>
-): Array<[number, number]> {
-  if (intervals.length === 0) return [];
-  const sorted = [...intervals].sort((x, y) => x[0] - y[0]);
-  const out: Array<[number, number]> = [[sorted[0][0], sorted[0][1]]];
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = out[out.length - 1];
-    const [s, e] = sorted[i];
-    if (s <= prev[1]) prev[1] = Math.max(prev[1], e);
-    else out.push([s, e]);
-  }
-  return out;
-}
-
-function computeExecutedIntervals(functions: V8Function[]): Array<[number, number]> {
-  const all: Array<[number, number]> = [];
   for (const fn of functions) {
-    for (const iv of executedIntervalsForFunction(fn)) all.push(iv);
+    for (const range of fn.ranges) {
+      if (
+        !Number.isSafeInteger(range.startOffset) ||
+        !Number.isSafeInteger(range.endOffset) ||
+        !Number.isFinite(range.count) ||
+        range.count < 0 ||
+        range.startOffset < 0 ||
+        range.endOffset <= range.startOffset ||
+        range.endOffset > sourceLength
+      ) {
+        return [];
+      }
+      const atOffset = starts.get(range.startOffset) ?? [];
+      atOffset.push(range);
+      starts.set(range.startOffset, atOffset);
+      boundaries.add(range.startOffset);
+      boundaries.add(range.endOffset);
+    }
   }
-  return mergeIntervals(all);
+
+  const offsets = [...boundaries].sort((left, right) => left - right);
+  if (offsets.length < 2) return [];
+
+  const active: V8Range[] = [];
+  const executed: Array<[number, number]> = [];
+
+  for (let i = 0; i < offsets.length - 1; i++) {
+    const offset = offsets[i];
+
+    while (active.at(-1)?.endOffset === offset) active.pop();
+
+    const beginning = starts.get(offset);
+    if (beginning) {
+      beginning.sort((left, right) => {
+        // Wider ranges are pushed first, leaving the narrowest on top.
+        const byEnd = right.endOffset - left.endOffset;
+        if (byEnd !== 0) return byEnd;
+        // Identical contradictory ranges are ambiguous, so zero wins.
+        return Number(left.count === 0) - Number(right.count === 0);
+      });
+
+      for (const range of beginning) {
+        const parent = active.at(-1);
+        if (parent && range.endOffset > parent.endOffset) return [];
+        active.push(range);
+      }
+    }
+
+    const end = offsets[i + 1];
+    if (active.length === 0 || active.at(-1)?.count === 0) continue;
+
+    const previous = executed.at(-1);
+    if (previous?.[1] === offset) previous[1] = end;
+    else executed.push([offset, end]);
+  }
+
+  return executed;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -308,7 +565,7 @@ function decodeScript(
   sm: { url: string; map: any } | undefined,
   into: TouchedByFile
 ): void {
-  const intervals = computeExecutedIntervals(functions);
+  const intervals = computeExecutedIntervals(functions, source.length);
   if (intervals.length === 0) return;
 
   const lineOffsets = buildLineOffsets(source);
@@ -447,25 +704,62 @@ export async function convertServerCoverage(
   return finalise(touched);
 }
 
-export async function convertBrowserCoverage(
+export type BrowserCoverageConversion = {
+  files: FileCoverage[];
+  sourceMaps: BrowserSourceMapDiagnostics;
+};
+
+export async function convertBrowserCoverageWithDiagnostics(
   entries: BrowserCoverageEntry[]
-): Promise<FileCoverage[]> {
+): Promise<BrowserCoverageConversion> {
   const touched: TouchedByFile = new Map();
+  const sourceMaps: BrowserSourceMapDiagnostics = {
+    totalScripts: 0,
+    resolvedHostedMaps: 0,
+    resolvedLocalExactMaps: 0,
+    unresolvedMaps: 0,
+  };
+
   for (const entry of entries) {
+    const trackedScript = entry.source.length > 0 && isBrowserJavaScript(entry.url);
+    if (trackedScript) sourceMaps.totalScripts += 1;
+
     try {
-      const sm = await fetchBrowserSourceMap(entry.url, entry.source);
+      const hostedMap = await fetchBrowserSourceMap(entry.url, entry.source);
+      const localMap = hostedMap
+        ? undefined
+        : localExactBrowserSourceMap(entry.source);
+      const sm = hostedMap ?? localMap;
       debug(
         `browser ${entry.url.replace(/.*\//, "")} ` +
-          `sm=${sm ? "yes" : "NO"} srcLen=${entry.source.length} ` +
+          `sm=${hostedMap ? "hosted" : localMap ? "local-exact" : "NO"} ` +
+          `srcLen=${entry.source.length} ` +
           `fns=${entry.functions.length}`
       );
       decodeScript(entry.url, entry.source, entry.functions as V8Function[], sm, touched);
+      if (trackedScript) {
+        if (hostedMap) sourceMaps.resolvedHostedMaps += 1;
+        else if (localMap) sourceMaps.resolvedLocalExactMaps += 1;
+        else sourceMaps.unresolvedMaps += 1;
+      }
       debugDump("browser", entry.url, entry.source, sm, entry.functions, touched);
     } catch (err) {
+      if (trackedScript) sourceMaps.unresolvedMaps += 1;
       debug(`browser entry failed:`, (err as Error).message);
     }
   }
-  return finalise(touched);
+  return {
+    files: finalise(touched).filter((file) =>
+      isExistingRepositorySourcePath(file.path)
+    ),
+    sourceMaps,
+  };
+}
+
+export async function convertBrowserCoverage(
+  entries: BrowserCoverageEntry[]
+): Promise<FileCoverage[]> {
+  return (await convertBrowserCoverageWithDiagnostics(entries)).files;
 }
 
 function finalise(touched: TouchedByFile): FileCoverage[] {

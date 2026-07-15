@@ -31,6 +31,17 @@ export type BrowserChunkCoverage = {
   coveredRanges: Array<[number, number]>;
 };
 
+/**
+ * Provenance for browser source-map resolution during one test. Only loaded
+ * JavaScript chunk URLs are counted; inline document scripts are excluded.
+ */
+export type BrowserSourceMapDiagnostics = {
+  totalScripts: number;
+  resolvedHostedMaps: number;
+  resolvedLocalExactMaps: number;
+  unresolvedMaps: number;
+};
+
 export type PerTestCoverage = {
   testId: string;
   /** Playwright's stable ID; display titles must never be used for selection. */
@@ -44,6 +55,7 @@ export type PerTestCoverage = {
   files: FileCoverage[];
   externalDeps: ExternalDep[];
   browserChunks?: BrowserChunkCoverage[];
+  browserSourceMaps?: BrowserSourceMapDiagnostics;
 };
 
 export type RunIndexEntry = {
@@ -60,6 +72,7 @@ export type RunIndexEntry = {
   browserChunkCount?: number;
   coveredBytes?: number;
   totalBytes?: number;
+  browserSourceMaps?: BrowserSourceMapDiagnostics;
   status: CobraTestStatus;
 };
 
@@ -88,6 +101,7 @@ export type CobraMappingTest = {
   status: CobraTestStatus;
   files: FileCoverage[];
   externalDeps: ExternalDep[];
+  browserSourceMaps?: BrowserSourceMapDiagnostics;
 };
 
 export type CobraMappingIndex = {
@@ -179,3 +193,107 @@ export type CobraDashboard = {
   };
   builds: CobraBuild[];
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** True only for application/package source files that can participate in impact analysis. */
+export function isCobraRepositorySourcePath(value: unknown): value is string {
+  if (typeof value !== "string" || /^https?:\/\//i.test(value)) return false;
+  const normalized = value.replace(/\\/g, "/").replace(/^\.\//, "");
+  const segments = normalized.split("/");
+  return (
+    segments.length >= 4 &&
+    (segments[0] === "apps" || segments[0] === "packages") &&
+    segments[1].length > 0 &&
+    segments[2] === "src" &&
+    segments.slice(3).every((segment) =>
+      segment.length > 0 && segment !== "." && segment !== ".."
+    )
+  );
+}
+
+/**
+ * Hosted source maps are the only source-line evidence trusted for selective
+ * skipping. Local exact-match maps remain useful diagnostics, but cannot
+ * prove what a remote deployment served.
+ */
+export function isCompleteHostedBrowserSourceMaps(
+  value: unknown
+): value is BrowserSourceMapDiagnostics {
+  if (!isRecord(value)) return false;
+  const counts = [
+    value.totalScripts,
+    value.resolvedHostedMaps,
+    value.resolvedLocalExactMaps,
+    value.unresolvedMaps,
+  ];
+  if (
+    !counts.every(
+      (count) => Number.isInteger(count) && (count as number) >= 0
+    )
+  ) {
+    return false;
+  }
+
+  const totalScripts = value.totalScripts as number;
+  return (
+    totalScripts > 0 &&
+    value.resolvedHostedMaps === totalScripts &&
+    value.resolvedLocalExactMaps === 0 &&
+    value.unresolvedMaps === 0
+  );
+}
+
+/** A source mapping test must have at least one concrete repository line. */
+export function hasUsableCobraRepositorySourceLines(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.files) || value.files.length === 0) {
+    return false;
+  }
+
+  let touchedRepositoryLine = false;
+  for (const file of value.files) {
+    if (
+      !isRecord(file) ||
+      !isCobraRepositorySourcePath(file.path) ||
+      !Array.isArray(file.linesTouched) ||
+      !file.linesTouched.every(
+        (line) => Number.isInteger(line) && (line as number) > 0
+      )
+    ) {
+      return false;
+    }
+    if (file.linesTouched.length > 0) touchedRepositoryLine = true;
+  }
+  return touchedRepositoryLine;
+}
+
+/** Runtime guard for evidence that is safe to use for selective test skipping. */
+export function isTrustedCobraMapping(
+  value: unknown
+): value is CobraMappingIndex {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    typeof value.baselineRunId !== "string" ||
+    value.baselineRunId.length === 0 ||
+    value.deploymentVerified !== true ||
+    value.coverageCapability !== "source" ||
+    !Array.isArray(value.tests) ||
+    value.tests.length === 0
+  ) {
+    return false;
+  }
+
+  return value.tests.every(
+    (test) =>
+      isRecord(test) &&
+      typeof test.testId === "string" &&
+      test.testId.length > 0 &&
+      test.sourceRunId === value.baselineRunId &&
+      test.status === "passed" &&
+      hasUsableCobraRepositorySourceLines(test) &&
+      isCompleteHostedBrowserSourceMaps(test.browserSourceMaps)
+  );
+}

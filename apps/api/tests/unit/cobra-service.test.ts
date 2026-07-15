@@ -27,6 +27,7 @@ vi.mock("../../src/config/env.js", () => ({
 describe("COBRA advisory build planning", () => {
   const storage = fs.mkdtempSync(path.join(os.tmpdir(), "cobra-api-service-"));
   let createBuild: typeof import("../../src/modules/cobra/cobra.service")["createBuild"];
+  let getDashboard: typeof import("../../src/modules/cobra/cobra.service")["getDashboard"];
 
   const baseSha = "a".repeat(40);
   const headSha = "b".repeat(40);
@@ -54,6 +55,12 @@ describe("COBRA advisory build planning", () => {
             },
           ],
           externalDeps: [],
+          browserSourceMaps: {
+            totalScripts: 1,
+            resolvedHostedMaps: 1,
+            resolvedLocalExactMaps: 0,
+            unresolvedMaps: 0,
+          },
         },
       ],
     };
@@ -68,7 +75,9 @@ describe("COBRA advisory build planning", () => {
   beforeAll(async () => {
     mockEnvironment.storage = storage;
     vi.resetModules();
-    ({ createBuild } = await import("../../src/modules/cobra/cobra.service"));
+    ({ createBuild, getDashboard } = await import(
+      "../../src/modules/cobra/cobra.service"
+    ));
   });
 
   beforeEach(() => {
@@ -128,5 +137,71 @@ describe("COBRA advisory build planning", () => {
       mode: "full-regression",
       reason: "mapping-missing",
     });
+  });
+
+  it.each([
+    {
+      label: "missing diagnostics",
+      mutate(value: CobraMappingIndex) {
+        delete value.tests[0].browserSourceMaps;
+      },
+    },
+    {
+      label: "local source maps",
+      mutate(value: CobraMappingIndex) {
+        value.tests[0].browserSourceMaps = {
+          totalScripts: 1,
+          resolvedHostedMaps: 0,
+          resolvedLocalExactMaps: 1,
+          unresolvedMaps: 0,
+        };
+      },
+    },
+    {
+      label: "unresolved source maps",
+      mutate(value: CobraMappingIndex) {
+        value.tests[0].browserSourceMaps = {
+          totalScripts: 1,
+          resolvedHostedMaps: 0,
+          resolvedLocalExactMaps: 0,
+          unresolvedMaps: 1,
+        };
+      },
+    },
+    {
+      label: "no repository source lines",
+      mutate(value: CobraMappingIndex) {
+        value.tests[0].files[0].linesTouched = [];
+      },
+    },
+  ])("ignores trusted evidence with $label", ({ mutate }) => {
+    const invalid = mapping("source");
+    mutate(invalid);
+    writeMapping("latest", mapping("source"));
+    writeMapping("trusted", invalid);
+
+    const build = createBuild({
+      baseSha,
+      headSha,
+      source: "manual",
+      changedFiles: [
+        {
+          path: "apps/web/src/app/candidates/page.tsx",
+          status: "modified",
+          lines: [10],
+        },
+      ],
+    });
+
+    expect(build.baselineRunId).toBeUndefined();
+    expect(build.selection.mode).toBe("full-regression");
+  });
+
+  it("does not report a legacy source mapping as dashboard-ready", () => {
+    const legacy = mapping("source");
+    delete legacy.tests[0].browserSourceMaps;
+    writeMapping("latest", legacy);
+
+    expect(getDashboard().mapping.ready).toBe(false);
   });
 });

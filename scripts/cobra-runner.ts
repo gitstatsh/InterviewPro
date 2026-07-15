@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { analyzeImpact } from "../apps/api/src/modules/cobra/cobra-impact.js";
 import { collectGitChanges as collectRepositoryChanges } from "../apps/api/src/modules/cobra/cobra-git.js";
 import { generateCoverageDashboard } from "../apps/web/tests/support/cobra/cobra-dashboard.js";
+import { isTrustedCobraMapping } from "../packages/shared/src/types/cobra.js";
 import type {
   CobraBuild,
   CobraChangedFile,
@@ -550,6 +551,13 @@ function isMappingIndex(value: unknown): value is CobraMappingIndex {
   );
 }
 
+/** Public for focused safety tests; impact execution uses the same guard. */
+export function isSelectiveCobraMapping(
+  value: unknown
+): value is CobraMappingIndex {
+  return isMappingIndex(value) && isTrustedCobraMapping(value);
+}
+
 function readMappingSafely(): {
   mapping: CobraMappingIndex | null;
   warning?: string;
@@ -568,9 +576,9 @@ function readMappingSafely(): {
         warnings.push(`The ${candidate.label} baseline mapping has an invalid structure.`);
         continue;
       }
-      if (value.deploymentVerified !== true || value.coverageCapability !== "source") {
+      if (!isSelectiveCobraMapping(value)) {
         warnings.push(
-          `The ${candidate.label} baseline mapping is not verified source coverage and cannot select tests.`
+          `The ${candidate.label} baseline mapping lacks complete hosted source-line evidence for every test and cannot select tests.`
         );
         continue;
       }
@@ -1083,7 +1091,12 @@ async function main(): Promise<void> {
   } else dashboard(options);
 }
 
-main().catch((error) => {
-  console.error(`[cobra] ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main().catch((error) => {
+    console.error(`[cobra] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+}
