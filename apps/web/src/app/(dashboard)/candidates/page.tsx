@@ -241,6 +241,7 @@ function SortButton({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// COBRA module boundary: changes in this page map to @cobra:candidates.
 export default function CandidatesPage() {
   const { activeOrgId } = useActiveOrg();
   const [search, setSearch] = useState("");
