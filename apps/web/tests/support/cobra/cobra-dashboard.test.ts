@@ -76,7 +76,7 @@ describe("COBRA standalone dashboard snapshots", () => {
           { path: "apps/web/src/feature.ts", status: "modified", lines: [1] },
         ],
         recommendedTests: ["login navigation"],
-        skippedTests: [],
+        skippedTests: ["reports"],
         unmappedFiles: [],
       },
       executedTests: [
@@ -116,6 +116,16 @@ describe("COBRA standalone dashboard snapshots", () => {
         receivedAt: "2026-07-14T10:00:00.000Z",
       })
     );
+    writeJson(repoRoot, `.cobra/runs/${runId}/runner-metadata.json`, {
+      runId,
+      strategy: "modules",
+      matchedModules: ["candidates-page"],
+      ignoredFiles: [],
+      selectedSpecFiles: ["sidebar-navigation.spec.ts"],
+      selectedTestTags: ["@cobra:candidates"],
+      expectedTestCount: 1,
+      warnings: ["Reviewed module map selected one test."],
+    });
     writeJson(
       repoRoot,
       ".cobra/builds/newest-unrelated.json",
@@ -126,6 +136,10 @@ describe("COBRA standalone dashboard snapshots", () => {
         receivedAt: "2026-07-14T11:00:00.000Z",
       })
     );
+    writeJson(repoRoot, ".cobra/runs/another-run/runner-metadata.json", {
+      runId: "wrong-run",
+      matchedModules: ["must-not-be-hydrated"],
+    });
     writeJson(repoRoot, ".cobra/builds/malformed.json", {
       id: "malformed-build-must-be-ignored",
       receivedAt: "2026-07-14T12:00:00.000Z",
@@ -172,7 +186,17 @@ describe("COBRA standalone dashboard snapshots", () => {
     });
     expect(snapshot.inventory.mapping.baselineRunId).toBe("baseline-one");
     expect(impactSection).toContain("associated1234567890");
+    expect(impactSection).toContain("apps/web/src/feature.ts");
+    expect(impactSection).toContain("candidates-page");
+    expect(impactSection).toContain("@cobra:candidates");
+    expect(impactSection).toContain("reports");
+    expect(impactSection).toContain("passed");
+    expect(impactSection).toContain("Structured execution log");
+    expect(impactSection).toContain("Reviewed module map selected one test.");
     expect(impactSection).not.toContain("unrelated9999999999");
+    expect(html).toContain("Analyzed builds");
+    expect(html).toContain(runId);
+    expect(html).not.toContain("must-not-be-hydrated");
     expect(html).not.toContain("malformed-build-must-be-ignored");
 
     // Even the immutable mapping changing later cannot rewrite a historical

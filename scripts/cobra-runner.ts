@@ -83,11 +83,7 @@ type DeploymentBuild = {
 };
 
 type RunnerBuild = CobraBuild & {
-  warnings?: string[];
   deployment?: DeploymentBuild;
-  selectedSpecFiles?: string[];
-  selectedTestTags?: string[];
-  strategy?: ImpactStrategy;
 };
 
 type ProcessResult = {
@@ -1122,6 +1118,8 @@ async function impact(options: CliOptions, context: ImpactExecutionContext): Pro
     executedTests: [],
     warnings,
     deployment,
+    matchedModules,
+    ignoredFiles,
     selectedSpecFiles: specs,
     selectedTestTags,
     strategy,

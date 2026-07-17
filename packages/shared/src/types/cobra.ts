@@ -171,6 +171,12 @@ export type CobraBuild = {
   finishedAt?: string;
   durationMs?: number;
   expectedTestCount?: number;
+  strategy?: "source" | "modules";
+  matchedModules?: string[];
+  ignoredFiles?: string[];
+  selectedSpecFiles?: string[];
+  selectedTestTags?: string[];
+  warnings?: string[];
   status: CobraBuildStatus;
   runId?: string;
   selection: CobraImpactDecision;

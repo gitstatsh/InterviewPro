@@ -79,6 +79,13 @@ type BuildRecord = {
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;
+  expectedTestCount?: number;
+  strategy?: "source" | "modules";
+  matchedModules?: string[];
+  ignoredFiles?: string[];
+  selectedSpecFiles?: string[];
+  selectedTestTags?: string[];
+  warnings?: string[];
   status: string;
   runId?: string;
   selection: {
@@ -287,6 +294,16 @@ function isBuildRecord(value: unknown): value is BuildRecord {
     (value.startedAt === undefined || typeof value.startedAt === "string") &&
     (value.finishedAt === undefined || typeof value.finishedAt === "string") &&
     (value.durationMs === undefined || isFiniteNonNegativeNumber(value.durationMs)) &&
+    (value.expectedTestCount === undefined ||
+      isFiniteNonNegativeNumber(value.expectedTestCount)) &&
+    (value.strategy === undefined ||
+      value.strategy === "source" ||
+      value.strategy === "modules") &&
+    (value.matchedModules === undefined || isStringArray(value.matchedModules)) &&
+    (value.ignoredFiles === undefined || isStringArray(value.ignoredFiles)) &&
+    (value.selectedSpecFiles === undefined || isStringArray(value.selectedSpecFiles)) &&
+    (value.selectedTestTags === undefined || isStringArray(value.selectedTestTags)) &&
+    (value.warnings === undefined || isStringArray(value.warnings)) &&
     (value.error === undefined || typeof value.error === "string") &&
     typeof selection.mode === "string" &&
     typeof selection.reason === "string" &&
@@ -458,6 +475,75 @@ function loadBuilds(cobraRoot: string): BuildRecord[] {
   return builds.sort((left, right) =>
     right.receivedAt.localeCompare(left.receivedAt)
   );
+}
+
+type RunnerEvidence = Pick<
+  BuildRecord,
+  | "expectedTestCount"
+  | "strategy"
+  | "matchedModules"
+  | "ignoredFiles"
+  | "selectedSpecFiles"
+  | "selectedTestTags"
+  | "warnings"
+>;
+
+function loadRunnerEvidence(
+  cobraRoot: string,
+  build: BuildRecord
+): RunnerEvidence | undefined {
+  let runId: string;
+  try {
+    runId = safeRunId(build.runId ?? build.id);
+  } catch {
+    return undefined;
+  }
+  const file = path.join(cobraRoot, "runs", runId, "runner-metadata.json");
+  if (!fs.existsSync(file)) return undefined;
+  try {
+    const value = readJson<unknown>(file);
+    if (!isRecord(value) || value.runId !== runId) return undefined;
+    if (
+      (value.expectedTestCount !== undefined &&
+        !isFiniteNonNegativeNumber(value.expectedTestCount)) ||
+      (value.strategy !== undefined &&
+        value.strategy !== "source" &&
+        value.strategy !== "modules") ||
+      (value.matchedModules !== undefined && !isStringArray(value.matchedModules)) ||
+      (value.ignoredFiles !== undefined && !isStringArray(value.ignoredFiles)) ||
+      (value.selectedSpecFiles !== undefined && !isStringArray(value.selectedSpecFiles)) ||
+      (value.selectedTestTags !== undefined && !isStringArray(value.selectedTestTags)) ||
+      (value.warnings !== undefined && !isStringArray(value.warnings))
+    ) {
+      return undefined;
+    }
+    return {
+      expectedTestCount: value.expectedTestCount,
+      strategy: value.strategy,
+      matchedModules: value.matchedModules,
+      ignoredFiles: value.ignoredFiles,
+      selectedSpecFiles: value.selectedSpecFiles,
+      selectedTestTags: value.selectedTestTags,
+      warnings: value.warnings,
+    } as RunnerEvidence;
+  } catch {
+    return undefined;
+  }
+}
+
+function hydrateBuildEvidence(cobraRoot: string, build: BuildRecord): BuildRecord {
+  const evidence = loadRunnerEvidence(cobraRoot, build);
+  if (!evidence) return build;
+  return {
+    ...build,
+    expectedTestCount: build.expectedTestCount ?? evidence.expectedTestCount,
+    strategy: build.strategy ?? evidence.strategy,
+    matchedModules: build.matchedModules ?? evidence.matchedModules,
+    ignoredFiles: build.ignoredFiles ?? evidence.ignoredFiles,
+    selectedSpecFiles: build.selectedSpecFiles ?? evidence.selectedSpecFiles,
+    selectedTestTags: build.selectedTestTags ?? evidence.selectedTestTags,
+    warnings: build.warnings ?? evidence.warnings,
+  };
 }
 
 function associatedBuildForRun(
@@ -806,6 +892,14 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
   const selectedIds = Array.from(
     new Set([...(selection.recommendedTests ?? []), ...executedTests.map((test) => test.testId)])
   );
+  const matchedModules = build.matchedModules ?? [];
+  const skippedIds = selection.skippedTests ?? [];
+  const selectedTags = build.selectedTestTags ?? [];
+  const selectedSpecs = build.selectedSpecFiles ?? [];
+  const warnings = build.warnings ?? [];
+  const expectedTestCount = build.expectedTestCount ?? selectedIds.length;
+  const passedCount = executedTests.filter((test) => test.status === "passed").length;
+  const failedCount = executedTests.filter((test) => test.status === "failed").length;
 
   const changedRows = changedFiles
     .map((file) => {
@@ -839,6 +933,54 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
     })
     .join("");
 
+  const matchedModuleRows = matchedModules
+    .map(
+      (moduleId) =>
+        `<div class="list-row"><div class="primary code">${escapeHtml(moduleId)}</div></div>`
+    )
+    .join("");
+
+  const skippedRows = skippedIds
+    .map(
+      (testId) =>
+        `<div class="list-row"><div class="primary">${escapeHtml(
+          testId
+        )}</div><span class="status skipped"><i></i>skipped</span></div>`
+    )
+    .join("");
+
+  const executionLogEntries: Array<{ event: string; detail: string }> = [
+    {
+      event: "Run",
+      detail: `${build.runId ?? build.id} · ${build.strategy ?? "unknown"} strategy`,
+    },
+    {
+      event: "Selection",
+      detail: `tags=${selectedTags.length ? selectedTags.join(", ") : "none"} · specs=${
+        selectedSpecs.length ? selectedSpecs.join(", ") : "none"
+      }`,
+    },
+    {
+      event: "Execution",
+      detail: `${expectedTestCount} expected · ${executedTests.length} executed · ${passedCount} passed · ${failedCount} failed`,
+    },
+    {
+      event: "Timing",
+      detail: `started=${
+        build.startedAt ? formatDate(build.startedAt) : "not recorded"
+      } · finished=${build.finishedAt ? formatDate(build.finishedAt) : "not recorded"}`,
+    },
+    ...warnings.map((warning) => ({ event: "Warning", detail: warning })),
+  ];
+  const executionLogRows = executionLogEntries
+    .map(
+      (entry) =>
+        `<div class="list-row"><div><div class="primary">${escapeHtml(
+          entry.event
+        )}</div><div class="secondary code">${escapeHtml(entry.detail)}</div></div></div>`
+    )
+    .join("");
+
   return `
       <section class="panel" id="impact">
         <div class="panel-head">
@@ -858,8 +1000,9 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
             reasonLabel(selection.reason)
           )}</strong></div>
           <div><span>Changed files</span><strong>${changedFiles.length}</strong></div>
+          <div><span>Matched modules</span><strong>${matchedModules.length}</strong></div>
           <div><span>Recommended</span><strong>${(selection.recommendedTests ?? []).length}</strong></div>
-          <div><span>Skipped</span><strong>${(selection.skippedTests ?? []).length}</strong></div>
+          <div><span>Skipped</span><strong>${skippedIds.length}</strong></div>
           <div><span>Duration</span><strong>${escapeHtml(
             build.durationMs == null ? "-" : formatDuration(build.durationMs)
           )}</strong></div>
@@ -868,10 +1011,19 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
           <section><div class="subhead"><h3>Changed files</h3><span>${changedFiles.length}</span></div><div class="list">${
             changedRows || `<div class="empty compact">No changed files recorded.</div>`
           }</div></section>
+          <section><div class="subhead"><h3>Matched modules</h3><span>${matchedModules.length}</span></div><div class="list">${
+            matchedModuleRows || `<div class="empty compact">No module match recorded.</div>`
+          }</div></section>
+        </div>
+        <div class="split">
           <section><div class="subhead"><h3>Selected and executed tests</h3><span>${selectedIds.length}</span></div><div class="list">${
             selectedRows || `<div class="empty compact">No tests selected for this change.</div>`
           }</div></section>
+          <section><div class="subhead"><h3>Skipped tests</h3><span>${skippedIds.length}</span></div><div class="list">${
+            skippedRows || `<div class="empty compact">No tests were skipped.</div>`
+          }</div></section>
         </div>
+        <section><div class="subhead"><h3>Structured execution log</h3><span>${executionLogEntries.length}</span></div><div class="list">${executionLogRows}</div></section>
         ${
           (selection.unmappedFiles ?? []).length
             ? `<div class="warning"><strong>Unmapped change fallback:</strong> ${escapeHtml(
@@ -984,6 +1136,7 @@ function createHtml(
   <title>COBRA Dashboard &middot; ${escapeHtml(index.runId)}</title>
   <style>
     :root{color-scheme:dark;--bg:#080b12;--surface:#111622;--surface2:#171d2b;--line:#273044;--text:#f3f6fb;--muted:#99a5bb;--purple:#9b87f5;--cyan:#45d6d0;--green:#4bd17f;--amber:#f4b860;--red:#ff7180;--blue:#66a3ff}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 12% -8%,#34255f70 0,transparent 34rem),radial-gradient(circle at 98% 4%,#12475b55 0,transparent 30rem),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.45}.shell{width:min(1500px,calc(100% - 40px));margin:0 auto;padding:44px 0 72px}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:28px}.brand{display:flex;align-items:center;gap:11px;color:#dcd5ff;font-size:12px;font-weight:850;letter-spacing:.13em;text-transform:uppercase}.logo{display:grid;place-items:center;width:34px;height:34px;border:1px solid #7567b8;border-radius:10px;background:#221d3b;box-shadow:0 0 30px #8d75ff38}h1{font-size:clamp(34px,5vw,60px);letter-spacing:-.055em;line-height:1.02;margin:22px 0 11px}.subtitle{color:var(--muted);font-size:15px;margin:0;max-width:760px}.run-meta{text-align:right;color:var(--muted);font-size:12px}.run-meta strong{display:block;color:var(--text);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;margin-bottom:5px}.nav{display:flex;flex-wrap:wrap;gap:8px;margin:25px 0}.nav a{color:#bec7d8;text-decoration:none;border:1px solid var(--line);background:#10141f;padding:7px 11px;border-radius:999px;font-size:11px;font-weight:750}.nav a:hover{color:white;border-color:#665a99}.provenance{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#0d121b}.provenance div{min-width:0}.provenance span,.provenance small{display:block;color:var(--muted);font-size:10px}.provenance strong{display:block;margin:3px 0;font-size:12px}.provenance p{grid-column:1/-1;margin:1px 0 0;color:var(--amber);font-size:10px}.banner{display:flex;gap:14px;align-items:flex-start;padding:17px 19px;border:1px solid #3f765f;background:linear-gradient(105deg,#153527,#11202a);border-radius:14px;margin:18px 0}.banner.warning-banner{border-color:#745c32;background:linear-gradient(105deg,#352819,#1b1c26)}.banner-icon{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:8px;background:#ffffff13;color:var(--cyan);font-weight:900}.warning-banner .banner-icon{color:var(--amber)}.banner strong{font-size:13px}.banner p{margin:3px 0 0;color:#bbc4d4;font-size:12px}.section-title{display:flex;justify-content:space-between;align-items:end;gap:20px;margin:31px 2px 13px}.section-title h2{font-size:22px;letter-spacing:-.025em;margin:0}.section-title p{margin:5px 0 0;color:var(--muted);font-size:12px;max-width:760px}.cards{display:grid;grid-template-columns:1.35fr repeat(4,1fr);gap:13px}.card{min-width:0;padding:19px;border:1px solid var(--line);border-radius:15px;background:linear-gradient(150deg,#161c2a,#10141e);box-shadow:0 12px 34px #0003}.card.accent{background:linear-gradient(145deg,#29204d,#151b2c);border-color:#5b4e8c}.card-label{color:var(--muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:850}.card-value{font-size:26px;line-height:1.1;letter-spacing:-.035em;font-weight:780;margin-top:9px;white-space:nowrap}.card.accent .card-value{font-size:37px;color:#ede9ff}.card-detail{font-size:11px;color:var(--muted);margin-top:7px}.panel{border:1px solid var(--line);border-radius:16px;background:#10141fdd;box-shadow:0 16px 44px #0003;overflow:hidden;margin-top:19px}.panel-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;padding:20px 22px;border-bottom:1px solid var(--line)}.eyebrow{color:var(--purple);font-size:9px;font-weight:900;letter-spacing:.15em;text-transform:uppercase;margin:0 0 4px}.panel h2{font-size:18px;letter-spacing:-.02em;margin:0}.panel-note{color:var(--muted);font-size:11px;margin:4px 0 0;max-width:760px}.filter{width:225px;border:1px solid #333c52;border-radius:9px;padding:9px 11px;background:#0b0f17;color:var(--text);outline:none}.filter:focus{border-color:var(--purple);box-shadow:0 0 0 3px #9b87f521}.table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;font-size:12px}th{padding:11px 14px;color:#8f99ae;font-size:9px;letter-spacing:.08em;text-transform:uppercase;text-align:left;background:#0c1018;white-space:nowrap}td{padding:13px 14px;border-top:1px solid #202738;vertical-align:middle}tbody tr:hover{background:#161c29}.primary{font-weight:650;max-width:720px}.secondary{color:var(--muted);font-size:10px;margin-top:3px;max-width:720px;overflow-wrap:anywhere}.code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.numeric{text-align:right;white-space:nowrap}.ranges{color:#bbc4d5;font-size:10px;min-width:150px;max-width:290px}.status{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:780;text-transform:capitalize;white-space:nowrap}.status i{width:6px;height:6px;border-radius:50%;background:currentColor}.status.passed{color:#6be49a;background:#163a26}.status.failed{color:#ff8b97;background:#3d1a21}.status.skipped{color:#f7c778;background:#3b2d19}.status.running{color:#80b4ff;background:#172c4b}.status.queued,.status.planned{color:#cabdff;background:#292343}.mode{display:inline-flex;border:1px solid #50466e;border-radius:999px;padding:4px 8px;color:#cabfff;font-size:10px;font-weight:800}.coverage-cell{display:grid;grid-template-columns:47px minmax(58px,105px);gap:9px;align-items:center;justify-content:end}.coverage-cell strong{text-align:right;font-size:11px}.bar{height:5px;background:#2b3243;border-radius:10px;overflow:hidden}.bar span{display:block;height:100%;border-radius:inherit}.bar .good{background:var(--green)}.bar .medium{background:var(--amber)}.bar .low{background:var(--red)}.bar .unknown{background:#687086}details summary{cursor:pointer;color:#cdd5e4;font-size:11px;white-space:nowrap}.detail-list{display:grid;gap:5px;min-width:260px;max-width:460px;margin-top:8px;padding:9px;border:1px solid var(--line);border-radius:8px;background:#0b0f17}.detail-list span{color:var(--muted);font-size:10px;overflow-wrap:anywhere}.head-badges{display:flex;align-items:center;gap:8px}.impact-summary{display:grid;grid-template-columns:2fr repeat(4,1fr);border-bottom:1px solid var(--line)}.impact-summary>div{padding:15px 18px;border-right:1px solid var(--line)}.impact-summary>div:last-child{border-right:0}.impact-summary span{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em}.impact-summary strong{display:block;margin-top:5px;font-size:13px}.split{display:grid;grid-template-columns:1fr 1fr}.split>section+section{border-left:1px solid var(--line)}.subhead{display:flex;justify-content:space-between;padding:14px 18px;background:#0d111a;border-bottom:1px solid var(--line)}.subhead h3{font-size:12px;margin:0}.subhead span{color:var(--muted);font-size:10px}.list{max-height:310px;overflow:auto}.list-row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:12px 18px;border-top:1px solid #202738}.list-row:first-child{border-top:0}.test-result{display:flex;align-items:center;gap:8px}.warning,.error-box{margin:14px 18px;padding:11px 13px;border-radius:9px;font-size:11px}.warning{border:1px solid #725c34;background:#2b2318;color:#f2ca83}.error-box{border:1px solid #74323c;background:#30171d;color:#ff9ca6;white-space:pre-wrap}.empty{padding:36px 22px;text-align:center;color:var(--muted);font-size:12px}.empty.compact{padding:25px 18px}.note{margin-top:14px;padding:14px 16px;border:1px dashed #364056;border-radius:12px;background:#0d121b;color:var(--muted);font-size:11px}.footer{display:flex;justify-content:space-between;color:#747e92;font-size:10px;margin-top:22px;padding:0 4px}.hidden-row{display:none}@media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}.card.accent{grid-column:span 2}.impact-summary{grid-template-columns:repeat(3,1fr)}.impact-summary>div{border-bottom:1px solid var(--line)}}@media(max-width:760px){.shell{width:min(100% - 24px,1500px);padding-top:27px}.top{display:block}.run-meta{text-align:left;margin-top:17px}.cards{grid-template-columns:1fr 1fr}.card.accent{grid-column:span 2}.panel-head,.section-title{display:block}.filter{width:100%;margin-top:13px}.provenance{grid-template-columns:1fr}.provenance p{grid-column:auto}.split{grid-template-columns:1fr}.split>section+section{border-left:0;border-top:1px solid var(--line)}.impact-summary{grid-template-columns:1fr 1fr}.footer{display:block}.footer span{display:block;margin-top:5px}}@media(max-width:460px){.cards{grid-template-columns:1fr}.card.accent{grid-column:auto}.coverage-cell{grid-template-columns:42px 58px}.impact-summary{grid-template-columns:1fr}}
+    @media(min-width:1101px){.impact-summary{grid-template-columns:2fr repeat(5,1fr)}}
   </style>
 </head>
 <body>
@@ -1143,7 +1296,9 @@ export function generateCoverageDashboard(
     if (document) documents.set(entry.file, document);
   }
 
-  const builds = loadBuilds(cobraRoot);
+  const builds = loadBuilds(cobraRoot).map((build) =>
+    hydrateBuildEvidence(cobraRoot, build)
+  );
   const associatedBuild = associatedBuildForRun(index, builds);
   const snapshot = sourceInventoryForRun(
     cobraRoot,
