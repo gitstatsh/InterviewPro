@@ -3,9 +3,9 @@
 /**
  * Safety-first CLI for hosted COBRA coverage runs.
  *
- * The runner deliberately executes whole spec files for an impacted run. This
- * may run a few extra tests, but it avoids the fragile display-title grep that
- * previously risked selecting no tests at all.
+ * Module impact runs use reviewed, stable test tags. Every tag is validated
+ * before execution and any missing or ambiguous selection safely falls back
+ * to the full automation suite.
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -37,6 +37,13 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const WEB_DIR = path.join(REPO_ROOT, "apps", "web");
 const AUTOMATION_DIR = path.join(REPO_ROOT, "automationTestcase");
 const AUTOMATION_CONFIG_FROM_WEB = "../../automationTestcase/playwright.config.ts";
+const PLAYWRIGHT_CLI = path.join(
+  WEB_DIR,
+  "node_modules",
+  "@playwright",
+  "test",
+  "cli.js"
+);
 // Resolve storage only after the same env file used by Playwright is loaded.
 // Function declarations are hoisted, so this remains an eager, deterministic
 // initialization without splitting runner and child artifacts across roots.
@@ -244,17 +251,9 @@ function readJson<T>(file: string): T | null {
   }
 }
 
-function corepackExecutable(): string {
-  return process.platform === "win32" ? "corepack.cmd" : "corepack";
-}
-
 function playwrightArguments(extra: string[] = []): string[] {
   return [
-    "pnpm",
-    "--dir",
-    "apps/web",
-    "exec",
-    "playwright",
+    PLAYWRIGHT_CLI,
     "test",
     "--config",
     AUTOMATION_CONFIG_FROM_WEB,
@@ -262,13 +261,18 @@ function playwrightArguments(extra: string[] = []): string[] {
   ];
 }
 
-function runCaptured(command: string, args: string[], environment = process.env): ProcessResult {
+function runCaptured(
+  command: string,
+  args: string[],
+  environment = process.env,
+  cwd = REPO_ROOT
+): ProcessResult {
   const result = spawnSync(command, args, {
-    cwd: REPO_ROOT,
+    cwd,
     env: environment,
     encoding: "utf8",
     maxBuffer: MAX_GIT_OUTPUT,
-    shell: process.platform === "win32" && command.toLowerCase().endsWith(".cmd"),
+    shell: false,
   });
   if (result.error) throw result.error;
   return {
@@ -280,10 +284,10 @@ function runCaptured(command: string, args: string[], environment = process.env)
 
 function runPlaywright(extra: string[], environment: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(corepackExecutable(), playwrightArguments(extra), {
-      cwd: REPO_ROOT,
+    const child = spawn(process.execPath, playwrightArguments(extra), {
+      cwd: WEB_DIR,
       env: environment,
-      shell: process.platform === "win32",
+      shell: false,
       stdio: "inherit",
     });
     child.once("error", reject);
@@ -298,9 +302,10 @@ function discoverAutomationTestCount(testFiles: string[] = []): number {
     HOSTED_COVERAGE: "0",
   };
   const result = runCaptured(
-    corepackExecutable(),
+    process.execPath,
     playwrightArguments(["--list", ...testFiles]),
-    environment
+    environment,
+    WEB_DIR
   );
   if (result.code !== 0) {
     throw new Error(
@@ -535,7 +540,7 @@ function selectedSpecFiles(
         warnings.push(`Selected spec is unavailable in the stable automation suite: ${test.specFile}`);
         continue;
       }
-      files.add(normalizeRepoPath(path.relative(WEB_DIR, absolute)));
+      files.add(normalizeRepoPath(relativeToAutomation));
     }
   }
 
@@ -562,7 +567,7 @@ function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+*?.-]/g, "\\$&");
 }
 
-function modulePlaywrightSelection(selectedTests: CobraModuleTest[]): {
+export function modulePlaywrightSelection(selectedTests: CobraModuleTest[]): {
   args: string[];
   files: string[];
   tags: string[];
@@ -583,7 +588,7 @@ function modulePlaywrightSelection(selectedTests: CobraModuleTest[]): {
       warnings.push(`Module test ${test.id} has an unavailable spec: ${test.specFile}`);
       continue;
     }
-    const playwrightFile = normalizeRepoPath(path.relative(WEB_DIR, absolute));
+    const playwrightFile = normalizeRepoPath(relativeToAutomation);
     const tagPattern = escapeRegex(test.tag);
     try {
       const count = discoverAutomationTestCount([playwrightFile, "--grep", tagPattern]);
@@ -609,7 +614,15 @@ function modulePlaywrightSelection(selectedTests: CobraModuleTest[]): {
   const pattern = [...tags].map(escapeRegex).join("|");
   const args = [...files].sort();
   args.push("--grep", `(?:${pattern})`);
-  const combinedCount = discoverAutomationTestCount(args);
+  let combinedCount: number;
+  try {
+    combinedCount = discoverAutomationTestCount(args);
+  } catch (error) {
+    warnings.push(
+      `Combined module tag validation failed: ${(error as Error).message}`
+    );
+    return { args: [], files: [], tags: [], warnings };
+  }
   if (combinedCount !== selectedTests.length) {
     warnings.push(
       `Combined module selection resolved to ${combinedCount} tests instead of ${selectedTests.length}.`

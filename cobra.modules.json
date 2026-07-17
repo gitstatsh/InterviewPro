@@ -37,6 +37,11 @@
       "tag": "@cobra:reports"
     },
     {
+      "id": "cobra",
+      "specFile": "automationTestcase/sidebar-navigation.spec.ts",
+      "tag": "@cobra:cobra"
+    },
+    {
       "id": "org-settings",
       "specFile": "automationTestcase/sidebar-navigation.spec.ts",
       "tag": "@cobra:org-settings"
@@ -132,6 +137,14 @@
       "tests": ["interviews", "reports"]
     },
     {
+      "name": "cobra-dashboard",
+      "paths": [
+        "apps/web/src/app/(dashboard)/cobra/**",
+        "apps/web/src/hooks/use-cobra.ts"
+      ],
+      "tests": ["cobra"]
+    },
+    {
       "name": "organization-settings",
       "paths": [
         "apps/web/src/app/(dashboard)/settings/page.tsx",
@@ -158,13 +171,12 @@
   "fullRegressionPaths": [
     "apps/web/src/app/(auth)/**",
     "apps/web/src/app/(dashboard)/layout.tsx",
-    "apps/web/src/app/(dashboard)/cobra/**",
+    "apps/web/src/app/api/**",
     "apps/web/src/app/layout.tsx",
     "apps/web/src/app/providers.tsx",
     "apps/web/src/app/globals.css",
     "apps/web/src/app/page.tsx",
     "apps/web/src/components/features/organizations/**",
-    "apps/web/src/hooks/use-cobra.ts",
     "apps/web/src/hooks/use-organization.ts",
     "apps/web/src/hooks/use-organizations.ts",
     "apps/web/src/hooks/use-roles.ts",
@@ -203,7 +215,6 @@
     "packages/*/tsconfig*.json",
     "apps/web/playwright.config.ts",
     "apps/web/next.config.mjs",
-    "apps/web/vercel.json",
     "apps/web/tailwind.config.ts",
     "apps/web/postcss.config.js"
   ],

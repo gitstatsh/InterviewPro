@@ -146,12 +146,20 @@ describe("COBRA module impact mapping", () => {
       "../../../../cobra.modules.json"
     );
     const parsed = parseCobraModuleMap(JSON.parse(fs.readFileSync(file, "utf8")));
-    expect(parsed.tests).toHaveLength(10);
+    expect(parsed.tests).toHaveLength(11);
     expect(parsed.modules.length).toBeGreaterThan(0);
     const selection = analyzeModuleImpact(parsed, [
       change("apps/web/src/app/(dashboard)/candidates/page.tsx"),
     ]);
     expect(selection.decision.recommendedTests).toEqual(["candidates"]);
     expect(selection.selectedTests.map((test) => test.tag)).toEqual(["@cobra:candidates"]);
+
+    const cobraSelection = analyzeModuleImpact(parsed, [
+      change("apps/web/src/app/(dashboard)/cobra/page.tsx"),
+    ]);
+    expect(cobraSelection.decision.recommendedTests).toEqual(["cobra"]);
+    expect(cobraSelection.selectedTests.map((test) => test.tag)).toEqual([
+      "@cobra:cobra",
+    ]);
   });
 });

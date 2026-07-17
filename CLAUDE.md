@@ -111,7 +111,7 @@ interview-platform/
 - **AI Summary**: Async BullMQ job → Claude generates strengths/concerns/recommendation/score; stored as JSONB; polled on frontend
 - **Reports**: Structured HTML report with full transcript + scores + AI summary, PDF download via Puppeteer, email via Resend
 - **Analytics Dashboard**: Session counts by status, sessions-over-time area chart, score distribution bar chart, top questions table, recent sessions list, date preset selector (7d/30d/90d/365d)
-- **Deployment Config**: vercel.json (web)
+- **Deployment**: Provider-neutral Next.js production build
 - **Testing**: 181 tests passing (132 unit Zod schema tests + 49 integration tests via Fastify inject)
 
 ## Half-Done Features

@@ -8,6 +8,7 @@ export const sidebarPageNames = [
   "Question Banks",
   "Interviews",
   "Reports",
+  "COBRA",
   "Org Settings",
   "Members",
   "Profile",
@@ -44,6 +45,10 @@ const sidebarDestinations = {
   Reports: {
     route: /\/reports\/?(?:[?#].*)?$/,
     heading: "Reports",
+  },
+  COBRA: {
+    route: /\/cobra\/?(?:[?#].*)?$/,
+    heading: "COBRA coverage dashboard",
   },
   "Org Settings": {
     route: /\/settings\/?(?:[?#].*)?$/,

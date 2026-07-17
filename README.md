@@ -113,7 +113,7 @@ corepack pnpm cobra:baseline --dry-run
 ```
 
 Analyze two Git commits with the reviewed module map. This mode does not depend
-on Vercel or `/api/cobra-build`:
+on a hosting-provider deployment endpoint:
 
 ```bash
 corepack pnpm cobra:impact:modules --base origin/main --head HEAD

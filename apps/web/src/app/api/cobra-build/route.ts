@@ -9,7 +9,6 @@ export async function GET() {
   const embeddedSourceMaps = process.env.COBRA_BUILD_SOURCE_MAPS;
   const commitSha =
     embeddedCommitSha ||
-    process.env.VERCEL_GIT_COMMIT_SHA ||
     process.env.COBRA_COMMIT_SHA ||
     process.env.GIT_COMMIT_SHA ||
     null;

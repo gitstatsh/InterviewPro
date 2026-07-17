@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CobraMappingIndex } from "@interview/shared";
-import { isSelectiveCobraMapping } from "../../../../scripts/cobra-runner.js";
+import {
+  isSelectiveCobraMapping,
+  modulePlaywrightSelection,
+} from "../../../../scripts/cobra-runner.js";
 
 function trustedMapping(): CobraMappingIndex {
   return {
@@ -37,6 +40,34 @@ function trustedMapping(): CobraMappingIndex {
 }
 
 describe("COBRA runner mapping trust", () => {
+  it(
+    "resolves multiple stable tags without shell interpretation",
+    () => {
+      const selection = modulePlaywrightSelection([
+        {
+          id: "questions",
+          specFile: "automationTestcase/sidebar-navigation.spec.ts",
+          tag: "@cobra:questions",
+        },
+        {
+          id: "question-banks",
+          specFile: "automationTestcase/sidebar-navigation.spec.ts",
+          tag: "@cobra:question-banks",
+        },
+      ]);
+
+      expect(selection.warnings).toEqual([]);
+      expect(selection.files).toEqual(["sidebar-navigation.spec.ts"]);
+      expect(selection.tags).toEqual([
+        "@cobra:question-banks",
+        "@cobra:questions",
+      ]);
+      expect(selection.args.at(-2)).toBe("--grep");
+      expect(selection.args.at(-1)).toContain("|");
+    },
+    30_000
+  );
+
   it("accepts complete hosted source-line evidence", () => {
     expect(isSelectiveCobraMapping(trustedMapping())).toBe(true);
   });

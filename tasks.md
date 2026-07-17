@@ -90,7 +90,7 @@
 - [x] Vitest v2 config
 
 ### Phase 12 — Deployment
-- [x] vercel.json (Vercel web deployment)
+- [x] Provider-neutral Next.js production build configuration
 - [x] /health endpoint on API
 - [x] Sentry error tracking (optional, no-op when DSN not set)
 - [x] Pino structured logging
