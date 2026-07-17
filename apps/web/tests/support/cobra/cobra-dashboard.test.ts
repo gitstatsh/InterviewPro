@@ -193,6 +193,9 @@ describe("COBRA standalone dashboard snapshots", () => {
     expect(impactSection).toContain("passed");
     expect(impactSection).toContain("Structured execution log");
     expect(impactSection).toContain("Reviewed module map selected one test.");
+    expect(impactSection).toContain("Changed lines");
+    expect(impactSection).toContain("Selected module tests");
+    expect(impactSection).toContain("Executed results");
     expect(impactSection).not.toContain("unrelated9999999999");
     expect(html).toContain("Analyzed builds");
     expect(html).toContain(runId);
@@ -212,6 +215,62 @@ describe("COBRA standalone dashboard snapshots", () => {
     expect(fs.readFileSync(runOutput, "utf8")).toContain("50.0%");
     expect(fs.readFileSync(runOutput, "utf8")).toContain("baseline test");
     expect(fs.readFileSync(runOutput, "utf8")).not.toContain("replacement test");
+  });
+
+  it("shows module evidence first and marks unavailable source coverage as N/A", () => {
+    const repoRoot = createRoot();
+    const cobraRoot = path.join(repoRoot, ".cobra");
+    const runId = "module-only-run";
+    const sourceFile = path.join(repoRoot, "apps", "web", "src", "feature.ts");
+    fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
+    fs.writeFileSync(sourceFile, "export const covered = 1;\n");
+    writeJson(repoRoot, `.cobra/runs/${runId}/index.json`, {
+      runId,
+      kind: "impact",
+      coverageMode: "hosted-browser",
+      createdAt: "2026-07-14T10:00:00.000Z",
+      finishedAt: "2026-07-14T10:00:01.000Z",
+      tests: [],
+    });
+    writeJson(repoRoot, ".cobra/mappings/latest.json", {
+      ...mapping("source-map-unavailable", []),
+      deploymentVerified: false,
+      tests: [{ testId: "source-map-unavailable", files: [] }],
+    });
+    writeJson(repoRoot, `.cobra/builds/${runId}.json`, {
+      ...build({
+        id: runId,
+        runId,
+        commitSha: "module1234567890",
+        receivedAt: "2026-07-14T10:00:00.000Z",
+      }),
+      strategy: "modules",
+      matchedModules: ["candidates-page"],
+      selectedSpecFiles: ["sidebar-navigation.spec.ts"],
+      selectedTestTags: ["@cobra:candidates"],
+      expectedTestCount: 1,
+    });
+
+    const output = generateCoverageDashboard(runId, { cobraRoot, repoRoot });
+    const html = fs.readFileSync(output, "utf8");
+    const impactStart = html.indexOf('<section class="panel" id="impact">');
+    const sourceStart = html.indexOf('<div class="section-title" id="source">');
+    const runtimeStart = html.indexOf('<div class="section-title" id="runtime">');
+    const sourceSection = html.slice(sourceStart, runtimeStart);
+
+    expect(impactStart).toBeGreaterThan(0);
+    expect(impactStart).toBeLessThan(sourceStart);
+    expect(html).toContain(
+      "Module impact is available; source-line coverage was not collected"
+    );
+    expect(html).toContain("Module test selection");
+    expect(html).toContain("1 / 2");
+    expect(sourceSection).toContain("Source-line coverage");
+    expect(sourceSection).toContain("N/A");
+    expect(sourceSection).toContain("Not collected; repository source maps unavailable");
+    expect(sourceSection).toContain("Not measured");
+    expect(sourceSection).not.toContain("0.0%");
+    expect(sourceSection).not.toContain("No mapped test");
   });
 
   it("rejects a malformed run index with a stable error", () => {

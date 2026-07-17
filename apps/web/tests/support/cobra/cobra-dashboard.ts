@@ -61,6 +61,8 @@ type ChangedFile = {
   path: string;
   status: string;
   lines?: number[];
+  oldLines?: number[];
+  structuralChange?: boolean;
 };
 
 type ExecutedTest = {
@@ -269,7 +271,11 @@ function isChangedFile(value: unknown): value is ChangedFile {
     typeof value.status === "string" &&
     (value.lines === undefined ||
       (Array.isArray(value.lines) &&
-        value.lines.every((line) => Number.isInteger(line) && line > 0)))
+        value.lines.every((line) => Number.isInteger(line) && line > 0))) &&
+    (value.oldLines === undefined ||
+      (Array.isArray(value.oldLines) &&
+        value.oldLines.every((line) => Number.isInteger(line) && line > 0))) &&
+    (value.structuralChange === undefined || typeof value.structuralChange === "boolean")
   );
 }
 
@@ -777,7 +783,10 @@ function aggregateRuntime(
   };
 }
 
-function sourceCoverageRows(inventory: CobraSourceInventory): string {
+function sourceCoverageRows(
+  inventory: CobraSourceInventory,
+  coverageAvailable: boolean
+): string {
   return [...inventory.files]
     .sort(
       (left, right) =>
@@ -787,7 +796,9 @@ function sourceCoverageRows(inventory: CobraSourceInventory): string {
         left.path.localeCompare(right.path)
     )
     .map((file) => {
-      const testSummary = file.mappedTests.length
+      const testSummary = !coverageAvailable
+        ? `<span class="secondary">Not measured</span>`
+        : file.mappedTests.length
         ? `<details><summary>${file.mappedTests.length} test${
             file.mappedTests.length === 1 ? "" : "s"
           }</summary><div class="detail-list">${file.mappedTests
@@ -798,13 +809,17 @@ function sourceCoverageRows(inventory: CobraSourceInventory): string {
       return `
             <tr data-filter-row="${escapeHtml(filterText)}">
               <td><div class="primary code">${escapeHtml(file.path)}</div></td>
-              <td>${progressBar(file.coveragePercent)}</td>
-              <td class="numeric">${formatCount(file.touchedLineCount)} / ${formatCount(
-                file.totalLines
-              )}</td>
-              <td class="numeric">${formatCount(file.uncoveredLineCount)}</td>
+              <td>${progressBar(coverageAvailable ? file.coveragePercent : null)}</td>
+              <td class="numeric">${
+                coverageAvailable
+                  ? `${formatCount(file.touchedLineCount)} / ${formatCount(file.totalLines)}`
+                  : `N/A / ${formatCount(file.totalLines)}`
+              }</td>
+              <td class="numeric">${
+                coverageAvailable ? formatCount(file.uncoveredLineCount) : "N/A"
+              }</td>
               <td><div class="ranges code">${escapeHtml(
-                formatLineRanges(file.uncoveredRanges)
+                coverageAvailable ? formatLineRanges(file.uncoveredRanges) : "Not measured"
               )}</div></td>
               <td>${testSummary}</td>
             </tr>`;
@@ -888,10 +903,7 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
   };
   const changedFiles = Array.isArray(selection.changedFiles) ? selection.changedFiles : [];
   const executedTests = Array.isArray(build.executedTests) ? build.executedTests : [];
-  const executedById = new Map(executedTests.map((test) => [test.testId, test]));
-  const selectedIds = Array.from(
-    new Set([...(selection.recommendedTests ?? []), ...executedTests.map((test) => test.testId)])
-  );
+  const selectedIds = Array.from(new Set(selection.recommendedTests ?? []));
   const matchedModules = build.matchedModules ?? [];
   const skippedIds = selection.skippedTests ?? [];
   const selectedTags = build.selectedTestTags ?? [];
@@ -900,6 +912,13 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
   const expectedTestCount = build.expectedTestCount ?? selectedIds.length;
   const passedCount = executedTests.filter((test) => test.status === "passed").length;
   const failedCount = executedTests.filter((test) => test.status === "failed").length;
+  const changedLineCount = changedFiles.reduce((total, file) => {
+    const lines = new Set([...(file.lines ?? []), ...(file.oldLines ?? [])]);
+    return total + lines.size;
+  }, 0);
+  const wholeFileChangeCount = changedFiles.filter(
+    (file) => (file.lines?.length ?? 0) === 0 && (file.oldLines?.length ?? 0) === 0
+  ).length;
 
   const changedRows = changedFiles
     .map((file) => {
@@ -911,26 +930,35 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
       return `<div class="list-row"><div><div class="primary code">${escapeHtml(
         file.path
       )}</div><div class="secondary">${escapeHtml(file.status)} &middot; ${
-        lines.length ? `${lines.length} changed line${lines.length === 1 ? "" : "s"}` : "whole file"
+        lines.length
+          ? `${lines.length} changed line${lines.length === 1 ? "" : "s"} &middot; line${
+              lines.length === 1 ? "" : "s"
+            } ${escapeHtml(formatLineRanges(lines.map((line) => [line, line])))}`
+          : "whole-file change"
       }</div></div></div>`;
     })
     .join("");
 
   const selectedRows = selectedIds
-    .map((testId) => {
-      const result = executedById.get(testId);
-      return `<div class="list-row"><div class="primary">${escapeHtml(
+    .map((testId, index) => {
+      const tag = selectedTags[index];
+      return `<div class="list-row"><div><div class="primary">${escapeHtml(
         testId
-      )}</div><div class="test-result">${
-        result
-          ? `<span class="status ${statusClass(result.status)}"><i></i>${escapeHtml(
-              result.status
-            )}</span><span class="secondary">${escapeHtml(
-              formatDuration(result.durationMs)
-            )}</span>`
-          : `<span class="status queued"><i></i>recommended</span>`
-      }</div></div>`;
+      )}</div>${tag ? `<div class="secondary code">${escapeHtml(tag)}</div>` : ""}</div><span class="status queued"><i></i>selected</span></div>`;
     })
+    .join("");
+
+  const executedRows = executedTests
+    .map(
+      (test) =>
+        `<div class="list-row"><div class="primary">${escapeHtml(
+          test.testId
+        )}</div><div class="test-result"><span class="status ${statusClass(
+          test.status
+        )}"><i></i>${escapeHtml(test.status)}</span><span class="secondary">${escapeHtml(
+          formatDuration(test.durationMs)
+        )}</span></div></div>`
+    )
     .join("");
 
   const matchedModuleRows = matchedModules
@@ -1000,8 +1028,15 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
             reasonLabel(selection.reason)
           )}</strong></div>
           <div><span>Changed files</span><strong>${changedFiles.length}</strong></div>
+          <div><span>Changed lines</span><strong>${escapeHtml(
+            wholeFileChangeCount
+              ? `${changedLineCount} + ${wholeFileChangeCount} whole file${
+                  wholeFileChangeCount === 1 ? "" : "s"
+                }`
+              : String(changedLineCount)
+          )}</strong></div>
           <div><span>Matched modules</span><strong>${matchedModules.length}</strong></div>
-          <div><span>Recommended</span><strong>${(selection.recommendedTests ?? []).length}</strong></div>
+          <div><span>Selected tests</span><strong>${selectedIds.length}</strong></div>
           <div><span>Skipped</span><strong>${skippedIds.length}</strong></div>
           <div><span>Duration</span><strong>${escapeHtml(
             build.durationMs == null ? "-" : formatDuration(build.durationMs)
@@ -1016,14 +1051,19 @@ function renderAssociatedBuild(build: BuildRecord | undefined): string {
           }</div></section>
         </div>
         <div class="split">
-          <section><div class="subhead"><h3>Selected and executed tests</h3><span>${selectedIds.length}</span></div><div class="list">${
+          <section><div class="subhead"><h3>Selected module tests</h3><span>${selectedIds.length}</span></div><div class="list">${
             selectedRows || `<div class="empty compact">No tests selected for this change.</div>`
           }</div></section>
           <section><div class="subhead"><h3>Skipped tests</h3><span>${skippedIds.length}</span></div><div class="list">${
             skippedRows || `<div class="empty compact">No tests were skipped.</div>`
           }</div></section>
         </div>
-        <section><div class="subhead"><h3>Structured execution log</h3><span>${executionLogEntries.length}</span></div><div class="list">${executionLogRows}</div></section>
+        <div class="split">
+          <section><div class="subhead"><h3>Executed results</h3><span>${executedTests.length}</span></div><div class="list">${
+            executedRows || `<div class="empty compact">No executed results recorded.</div>`
+          }</div></section>
+          <section><div class="subhead"><h3>Structured execution log</h3><span>${executionLogEntries.length}</span></div><div class="list">${executionLogRows}</div></section>
+        </div>
         ${
           (selection.unmappedFiles ?? []).length
             ? `<div class="warning"><strong>Unmapped change fallback:</strong> ${escapeHtml(
@@ -1080,7 +1120,18 @@ function createHtml(
   const source = inventory.summary;
   const associatedBuild = associatedBuildForRun(index, builds);
   const history = recentBuilds(builds, associatedBuild);
-  const mappingBanner = inventory.mapping.status === "invalid"
+  const sourceCoverageAvailable = inventory.mapping.ready;
+  const moduleStrategy = associatedBuild?.strategy === "modules";
+  const moduleSelectedCount = associatedBuild?.selection.recommendedTests.length ?? 0;
+  const moduleSkippedCount = associatedBuild?.selection.skippedTests.length ?? 0;
+  const moduleConfiguredCount = moduleSelectedCount + moduleSkippedCount;
+  const mappingBanner = moduleStrategy && !sourceCoverageAvailable
+    ? `<section class="banner warning-banner"><div class="banner-icon">!</div><div><strong>Module impact is available; source-line coverage was not collected</strong><p>${formatCount(
+        associatedBuild?.matchedModules?.length ?? 0
+      )} module(s) matched and ${formatCount(moduleSelectedCount)} of ${formatCount(
+        moduleConfiguredCount
+      )} tests were selected. Hosted repository source maps were unavailable, so source-line values are shown as N/A instead of false zeroes. Generated JavaScript coverage remains available below.</p></div></section>`
+    : inventory.mapping.status === "invalid"
     ? `<section class="banner warning-banner"><div class="banner-icon">!</div><div><strong>Repository source mapping is invalid</strong><p>${escapeHtml(
         inventory.mapping.error ?? "The mapping artifact could not be read."
       )} Source metrics fail closed with no touched lines until the artifact is repaired.</p></div></section>`
@@ -1136,7 +1187,7 @@ function createHtml(
   <title>COBRA Dashboard &middot; ${escapeHtml(index.runId)}</title>
   <style>
     :root{color-scheme:dark;--bg:#080b12;--surface:#111622;--surface2:#171d2b;--line:#273044;--text:#f3f6fb;--muted:#99a5bb;--purple:#9b87f5;--cyan:#45d6d0;--green:#4bd17f;--amber:#f4b860;--red:#ff7180;--blue:#66a3ff}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 12% -8%,#34255f70 0,transparent 34rem),radial-gradient(circle at 98% 4%,#12475b55 0,transparent 30rem),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.45}.shell{width:min(1500px,calc(100% - 40px));margin:0 auto;padding:44px 0 72px}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:28px}.brand{display:flex;align-items:center;gap:11px;color:#dcd5ff;font-size:12px;font-weight:850;letter-spacing:.13em;text-transform:uppercase}.logo{display:grid;place-items:center;width:34px;height:34px;border:1px solid #7567b8;border-radius:10px;background:#221d3b;box-shadow:0 0 30px #8d75ff38}h1{font-size:clamp(34px,5vw,60px);letter-spacing:-.055em;line-height:1.02;margin:22px 0 11px}.subtitle{color:var(--muted);font-size:15px;margin:0;max-width:760px}.run-meta{text-align:right;color:var(--muted);font-size:12px}.run-meta strong{display:block;color:var(--text);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;margin-bottom:5px}.nav{display:flex;flex-wrap:wrap;gap:8px;margin:25px 0}.nav a{color:#bec7d8;text-decoration:none;border:1px solid var(--line);background:#10141f;padding:7px 11px;border-radius:999px;font-size:11px;font-weight:750}.nav a:hover{color:white;border-color:#665a99}.provenance{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#0d121b}.provenance div{min-width:0}.provenance span,.provenance small{display:block;color:var(--muted);font-size:10px}.provenance strong{display:block;margin:3px 0;font-size:12px}.provenance p{grid-column:1/-1;margin:1px 0 0;color:var(--amber);font-size:10px}.banner{display:flex;gap:14px;align-items:flex-start;padding:17px 19px;border:1px solid #3f765f;background:linear-gradient(105deg,#153527,#11202a);border-radius:14px;margin:18px 0}.banner.warning-banner{border-color:#745c32;background:linear-gradient(105deg,#352819,#1b1c26)}.banner-icon{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:8px;background:#ffffff13;color:var(--cyan);font-weight:900}.warning-banner .banner-icon{color:var(--amber)}.banner strong{font-size:13px}.banner p{margin:3px 0 0;color:#bbc4d4;font-size:12px}.section-title{display:flex;justify-content:space-between;align-items:end;gap:20px;margin:31px 2px 13px}.section-title h2{font-size:22px;letter-spacing:-.025em;margin:0}.section-title p{margin:5px 0 0;color:var(--muted);font-size:12px;max-width:760px}.cards{display:grid;grid-template-columns:1.35fr repeat(4,1fr);gap:13px}.card{min-width:0;padding:19px;border:1px solid var(--line);border-radius:15px;background:linear-gradient(150deg,#161c2a,#10141e);box-shadow:0 12px 34px #0003}.card.accent{background:linear-gradient(145deg,#29204d,#151b2c);border-color:#5b4e8c}.card-label{color:var(--muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:850}.card-value{font-size:26px;line-height:1.1;letter-spacing:-.035em;font-weight:780;margin-top:9px;white-space:nowrap}.card.accent .card-value{font-size:37px;color:#ede9ff}.card-detail{font-size:11px;color:var(--muted);margin-top:7px}.panel{border:1px solid var(--line);border-radius:16px;background:#10141fdd;box-shadow:0 16px 44px #0003;overflow:hidden;margin-top:19px}.panel-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;padding:20px 22px;border-bottom:1px solid var(--line)}.eyebrow{color:var(--purple);font-size:9px;font-weight:900;letter-spacing:.15em;text-transform:uppercase;margin:0 0 4px}.panel h2{font-size:18px;letter-spacing:-.02em;margin:0}.panel-note{color:var(--muted);font-size:11px;margin:4px 0 0;max-width:760px}.filter{width:225px;border:1px solid #333c52;border-radius:9px;padding:9px 11px;background:#0b0f17;color:var(--text);outline:none}.filter:focus{border-color:var(--purple);box-shadow:0 0 0 3px #9b87f521}.table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;font-size:12px}th{padding:11px 14px;color:#8f99ae;font-size:9px;letter-spacing:.08em;text-transform:uppercase;text-align:left;background:#0c1018;white-space:nowrap}td{padding:13px 14px;border-top:1px solid #202738;vertical-align:middle}tbody tr:hover{background:#161c29}.primary{font-weight:650;max-width:720px}.secondary{color:var(--muted);font-size:10px;margin-top:3px;max-width:720px;overflow-wrap:anywhere}.code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.numeric{text-align:right;white-space:nowrap}.ranges{color:#bbc4d5;font-size:10px;min-width:150px;max-width:290px}.status{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:780;text-transform:capitalize;white-space:nowrap}.status i{width:6px;height:6px;border-radius:50%;background:currentColor}.status.passed{color:#6be49a;background:#163a26}.status.failed{color:#ff8b97;background:#3d1a21}.status.skipped{color:#f7c778;background:#3b2d19}.status.running{color:#80b4ff;background:#172c4b}.status.queued,.status.planned{color:#cabdff;background:#292343}.mode{display:inline-flex;border:1px solid #50466e;border-radius:999px;padding:4px 8px;color:#cabfff;font-size:10px;font-weight:800}.coverage-cell{display:grid;grid-template-columns:47px minmax(58px,105px);gap:9px;align-items:center;justify-content:end}.coverage-cell strong{text-align:right;font-size:11px}.bar{height:5px;background:#2b3243;border-radius:10px;overflow:hidden}.bar span{display:block;height:100%;border-radius:inherit}.bar .good{background:var(--green)}.bar .medium{background:var(--amber)}.bar .low{background:var(--red)}.bar .unknown{background:#687086}details summary{cursor:pointer;color:#cdd5e4;font-size:11px;white-space:nowrap}.detail-list{display:grid;gap:5px;min-width:260px;max-width:460px;margin-top:8px;padding:9px;border:1px solid var(--line);border-radius:8px;background:#0b0f17}.detail-list span{color:var(--muted);font-size:10px;overflow-wrap:anywhere}.head-badges{display:flex;align-items:center;gap:8px}.impact-summary{display:grid;grid-template-columns:2fr repeat(4,1fr);border-bottom:1px solid var(--line)}.impact-summary>div{padding:15px 18px;border-right:1px solid var(--line)}.impact-summary>div:last-child{border-right:0}.impact-summary span{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em}.impact-summary strong{display:block;margin-top:5px;font-size:13px}.split{display:grid;grid-template-columns:1fr 1fr}.split>section+section{border-left:1px solid var(--line)}.subhead{display:flex;justify-content:space-between;padding:14px 18px;background:#0d111a;border-bottom:1px solid var(--line)}.subhead h3{font-size:12px;margin:0}.subhead span{color:var(--muted);font-size:10px}.list{max-height:310px;overflow:auto}.list-row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:12px 18px;border-top:1px solid #202738}.list-row:first-child{border-top:0}.test-result{display:flex;align-items:center;gap:8px}.warning,.error-box{margin:14px 18px;padding:11px 13px;border-radius:9px;font-size:11px}.warning{border:1px solid #725c34;background:#2b2318;color:#f2ca83}.error-box{border:1px solid #74323c;background:#30171d;color:#ff9ca6;white-space:pre-wrap}.empty{padding:36px 22px;text-align:center;color:var(--muted);font-size:12px}.empty.compact{padding:25px 18px}.note{margin-top:14px;padding:14px 16px;border:1px dashed #364056;border-radius:12px;background:#0d121b;color:var(--muted);font-size:11px}.footer{display:flex;justify-content:space-between;color:#747e92;font-size:10px;margin-top:22px;padding:0 4px}.hidden-row{display:none}@media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}.card.accent{grid-column:span 2}.impact-summary{grid-template-columns:repeat(3,1fr)}.impact-summary>div{border-bottom:1px solid var(--line)}}@media(max-width:760px){.shell{width:min(100% - 24px,1500px);padding-top:27px}.top{display:block}.run-meta{text-align:left;margin-top:17px}.cards{grid-template-columns:1fr 1fr}.card.accent{grid-column:span 2}.panel-head,.section-title{display:block}.filter{width:100%;margin-top:13px}.provenance{grid-template-columns:1fr}.provenance p{grid-column:auto}.split{grid-template-columns:1fr}.split>section+section{border-left:0;border-top:1px solid var(--line)}.impact-summary{grid-template-columns:1fr 1fr}.footer{display:block}.footer span{display:block;margin-top:5px}}@media(max-width:460px){.cards{grid-template-columns:1fr}.card.accent{grid-column:auto}.coverage-cell{grid-template-columns:42px 58px}.impact-summary{grid-template-columns:1fr}}
-    @media(min-width:1101px){.impact-summary{grid-template-columns:2fr repeat(5,1fr)}}
+    @media(min-width:1101px){.impact-summary{grid-template-columns:2fr repeat(6,1fr)}}
   </style>
 </head>
 <body>
@@ -1151,33 +1202,61 @@ function createHtml(
           : ""
       }</div>
     </header>
-    <nav class="nav"><a href="#source">Whole source</a><a href="#impact">Git impact</a><a href="#runtime">Loaded JavaScript</a><a href="#tests">Tests</a><a href="#builds">Build history</a></nav>
+    <nav class="nav"><a href="#impact">Git impact</a><a href="#source">Source coverage</a><a href="#runtime">Loaded JavaScript</a><a href="#tests">Tests</a><a href="#builds">Build history</a></nav>
 
     ${provenance}
     ${mappingBanner}
 
-    <div class="section-title" id="source"><div><h2>Whole application source</h2><p>Inventory of TS, TSX, JS, and JSX under ${escapeHtml(
+    ${renderAssociatedBuild(associatedBuild)}
+
+    <div class="section-title" id="source"><div><h2>Repository source-line coverage</h2><p>Inventory of TS, TSX, JS, and JSX under ${escapeHtml(
       inventory.roots.join(", ")
     )}. Every eligible file is included, including files with no mapped execution.</p></div></div>
     <section class="cards">
-      <article class="card accent"><div class="card-label">Source line touch</div><div class="card-value">${escapeHtml(
-        formatPercentage(source.coveragePercent)
-      )}</div><div class="card-detail">${formatCount(source.touchedLines)} of ${formatCount(
-        source.totalLines
-      )} eligible lines</div></article>
+      <article class="card accent"><div class="card-label">Source-line coverage</div><div class="card-value">${escapeHtml(
+        sourceCoverageAvailable ? formatPercentage(source.coveragePercent) : "N/A"
+      )}</div><div class="card-detail">${
+        sourceCoverageAvailable
+          ? `${formatCount(source.touchedLines)} of ${formatCount(source.totalLines)} eligible lines executed`
+          : "Not collected; repository source maps unavailable"
+      }</div></article>
       <article class="card"><div class="card-label">Application files</div><div class="card-value">${formatCount(
         source.totalFiles
-      )}</div><div class="card-detail">${formatCount(source.coveredFiles)} touched &middot; ${formatCount(
-        source.uncoveredFiles
-      )} at 0% &middot; ${formatCount(source.notApplicableFiles)} N/A</div></article>
-      <article class="card"><div class="card-label">Uncovered lines</div><div class="card-value">${formatCount(
-        source.uncoveredLines
-      )}</div><div class="card-detail">Nonblank, non-comment source lines</div></article>
-      <article class="card"><div class="card-label">Mapped tests</div><div class="card-value">${formatCount(
-        source.mappedTests
-      )}</div><div class="card-detail">Tests with repository source paths</div></article>
-      <article class="card"><div class="card-label">Mapping state</div><div class="card-value">${
-        inventory.mapping.status === "invalid"
+      )}</div><div class="card-detail">${
+        sourceCoverageAvailable
+          ? `${formatCount(source.coveredFiles)} touched &middot; ${formatCount(
+              source.uncoveredFiles
+            )} at 0% &middot; ${formatCount(source.notApplicableFiles)} N/A`
+          : "Source inventory only; execution is not measured"
+      }</div></article>
+      <article class="card"><div class="card-label">Uncovered source lines</div><div class="card-value">${
+        sourceCoverageAvailable ? formatCount(source.uncoveredLines) : "N/A"
+      }</div><div class="card-detail">${
+        sourceCoverageAvailable
+          ? "Nonblank, non-comment source lines"
+          : "Cannot be calculated without source maps"
+      }</div></article>
+      <article class="card"><div class="card-label">${
+        moduleStrategy ? "Module test selection" : "Source-mapped tests"
+      }</div><div class="card-value">${
+        moduleStrategy
+          ? `${formatCount(moduleSelectedCount)} / ${formatCount(moduleConfiguredCount)}`
+          : sourceCoverageAvailable
+            ? formatCount(source.mappedTests)
+            : "N/A"
+      }</div><div class="card-detail">${
+        moduleStrategy
+          ? `${formatCount(moduleSelectedCount)} selected &middot; ${formatCount(
+              moduleSkippedCount
+            )} skipped`
+          : sourceCoverageAvailable
+            ? "Tests with repository source paths"
+            : "Not collected"
+      }</div></article>
+      <article class="card"><div class="card-label">Source-map state</div><div class="card-value">${
+        !sourceCoverageAvailable
+          ? "Unavailable"
+          : inventory.mapping.status === "invalid"
           ? "Invalid"
           : inventory.mapping.status === "missing"
             ? "Missing"
@@ -1186,20 +1265,26 @@ function createHtml(
               : inventory.mapping.ready
                 ? "Ready"
                 : "Unmapped"
-      }</div><div class="card-detail">${formatCount(
-        inventory.mapping.ignoredNonRepoFileCount
-      )} generated/non-repo entries ignored</div></article>
+      }</div><div class="card-detail">${
+        sourceCoverageAvailable
+          ? `${formatCount(inventory.mapping.ignoredNonRepoFileCount)} generated/non-repo entries ignored`
+          : "Generated JavaScript coverage is reported separately"
+      }</div></article>
     </section>
 
     <section class="panel">
-      <div class="panel-head"><div><p class="eyebrow">Repository inventory</p><h2>Covered and uncovered source</h2><p class="panel-note">This is source-line touch coverage, not statement or branch instrumentation. It deliberately excludes hosted URLs and generated chunks from repository metrics.</p></div><input class="filter" type="search" placeholder="Filter source or test" aria-label="Filter source files" data-filter-target="source-table"></div>
-      <div class="table-wrap"><table id="source-table"><thead><tr><th>Source file</th><th class="numeric">Coverage</th><th class="numeric">Touched / eligible</th><th class="numeric">Uncovered</th><th>Uncovered line ranges</th><th>Mapped tests</th></tr></thead><tbody>${
-        sourceCoverageRows(inventory) ||
+      <div class="panel-head"><div><p class="eyebrow">Repository inventory</p><h2>${
+        sourceCoverageAvailable ? "Covered and uncovered source" : "Source files — coverage not collected"
+      }</h2><p class="panel-note">${
+        sourceCoverageAvailable
+          ? "This is source-line touch coverage, not statement or branch instrumentation. It deliberately excludes hosted URLs and generated chunks from repository metrics."
+          : "The files are inventoried, but touched lines, uncovered lines, and source-mapped tests are N/A because this run had no usable repository source maps."
+      }</p></div><input class="filter" type="search" placeholder="Filter source or test" aria-label="Filter source files" data-filter-target="source-table"></div>
+      <div class="table-wrap"><table id="source-table"><thead><tr><th>Source file</th><th class="numeric">Coverage</th><th class="numeric">Executed / eligible</th><th class="numeric">Uncovered</th><th>Uncovered line ranges</th><th>Source-mapped tests</th></tr></thead><tbody>${
+        sourceCoverageRows(inventory, sourceCoverageAvailable) ||
         `<tr><td colspan="6" class="secondary">No eligible application source files were found.</td></tr>`
       }</tbody></table></div>
     </section>
-
-    ${renderAssociatedBuild(associatedBuild)}
 
     <div class="section-title" id="runtime"><div><h2>Loaded generated JavaScript</h2><p>Chromium V8 generated-script range coverage for same-origin scripts loaded during this run. This is separate from whole-source coverage: unloaded routes are absent and bundles can contain framework or vendor code.</p></div></div>
     <section class="cards">
